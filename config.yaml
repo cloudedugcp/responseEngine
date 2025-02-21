@@ -1,2 +1,6 @@
 server:
   addr: "0.0.0.0:8080"
+  fail2ban_enabled: true
+  ban_time: 1200
+  log_path: "/var/log/falco.log"
+  jail_name: "falco"
