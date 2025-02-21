@@ -82,6 +82,10 @@ func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
 			"priority", event["priority"],
 		)
 
+		eventJSON, _ := json.MarshalIndent(event, "", "  ")
+		fmt.Println("Parsed Falco event:")
+		fmt.Println(string(eventJSON))
+
 		// Перевірка наявності IP у полях події
 		var ip string
 		if fields, ok := event["fields"].(map[string]interface{}); ok {
