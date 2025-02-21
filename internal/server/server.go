@@ -91,22 +91,15 @@ func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
 		if fields, ok := event["output_fields"].(map[string]interface{}); ok {
 			if ipVal, ok := fields["fd.sip"].(string); ok {
 				ip = ipVal
-			}
-		}
-		if ip != "" && s.config.Fail2Ban {
-			s.blockIP(ip)
-		}
-
-		// additional logging
-		if fields, ok := event["output_fields"].(map[string]interface{}); ok {
-			if ipVal, ok := fields["fd.sip"].(string); ok {
-				ip = ipVal
 				s.logger.Info("Found source IP", "ip", ip)
 			} else {
 				s.logger.Warn("No fd.sip in output_fields")
 			}
 		}
-
+		if ip != "" && s.config.Fail2Ban {
+			s.logger.Info("start blockIP", "ip", ip)
+			s.blockIP(ip)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
