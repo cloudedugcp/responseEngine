@@ -42,7 +42,7 @@ func New(config Config, logger *slog.Logger) *Server {
 
 // Handle incoming POST requests with Falco events.
 func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	_ = r.Context()
 
 	if r.Method != http.MethodPost {
 		s.logger.Warn("Method not allowed", "method", r.Method, "path", r.URL.Path)
