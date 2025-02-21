@@ -142,28 +142,30 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) blockIP(ip string) {
-	// Enable Fail2Ban log
 	logFile, err := os.OpenFile(s.config.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		s.logger.Error("Failed to open log file", "error", err)
+		s.logger.Error("Failed to open log file", "path", s.config.LogPath, "error", err)
 		return
 	}
 	defer logFile.Close()
-	fmt.Fprintf(logFile, "Blocked IP: %s\n", ip)
+	// Записуємо лише IP-адресу
+	if _, err := fmt.Fprintln(logFile, ip); err != nil {
+		s.logger.Error("Failed to write to log file", "error", err)
+		return
+	}
 
-	// block ip Fail2Ban
-	cmd := exec.Command("fail2ban-client", "set", s.config.JailName, "banip", ip)
+	cmd := exec.Command("fail2ban-client", "set", s.config.JailName, "bantime", fmt.Sprintf("%d", s.config.BanTime))
 	if err := cmd.Run(); err != nil {
-		s.logger.Error("Failed to ban IP", "ip", ip, "error", err)
+		s.logger.Error("Failed to set bantime", "jail", s.config.JailName, "bantime", s.config.BanTime, "error", err)
+	}
+
+	cmd = exec.Command("fail2ban-client", "set", s.config.JailName, "banip", ip)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		s.logger.Error("Failed to ban IP", "ip", ip, "jail", s.config.JailName, "error", err, "output", string(output))
 		return
 	}
 	s.logger.Info("IP banned", "ip", ip, "bantime", s.config.BanTime)
-
-	// bantime Fail2Ban
-	cmd = exec.Command("fail2ban-client", "set", s.config.JailName, "bantime", fmt.Sprintf("%d", s.config.BanTime))
-	if err := cmd.Run(); err != nil {
-		s.logger.Error("Failed to set bantime", "ip", ip, "bantime", s.config.BanTime, "error", err)
-	}
 }
 
 func (s *Server) UnblockIP(ip string) error {
