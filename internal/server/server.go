@@ -89,7 +89,7 @@ func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
 		// Перевірка наявності IP у полях події
 		var ip string
 		if fields, ok := event["fields"].(map[string]interface{}); ok {
-			if ipVal, ok := fields["source.ip"].(string); ok {
+			if ipVal, ok := fields["fd.sip"].(string); ok {
 				ip = ipVal
 			}
 		}
