@@ -47,6 +47,7 @@ func New(config Config, logger *slog.Logger) *Server {
 }
 
 // Handle incoming POST requests with Falco events.
+// Handle incoming POST requests with Falco events.
 func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
@@ -82,23 +83,32 @@ func (s *Server) handleFalcoEvents(w http.ResponseWriter, r *http.Request) {
 			"priority", event["priority"],
 		)
 
-		eventJSON, _ := json.MarshalIndent(event, "", "  ")
-		fmt.Println("Parsed Falco event:")
-		fmt.Println(string(eventJSON))
+		eventJSON, err := json.MarshalIndent(event, "", "  ")
+		if err != nil {
+			s.logger.Error("Failed to marshal event JSON", "error", err)
+		} else {
+			fmt.Println("Parsed Falco event:")
+			fmt.Println(string(eventJSON))
+		}
 
-		// Перевірка наявності IP у полях події
+		// looking for ip
 		var ip string
 		if fields, ok := event["output_fields"].(map[string]interface{}); ok {
 			if ipVal, ok := fields["fd.sip"].(string); ok {
 				ip = ipVal
 				s.logger.Info("Found source IP", "ip", ip)
 			} else {
-				s.logger.Warn("No fd.sip in output_fields")
+				s.logger.Warn("No fd.sip in output_fields", "fields", fields)
 			}
+		} else {
+			s.logger.Warn("No output_fields in event")
 		}
+
 		if ip != "" && s.config.Fail2Ban {
 			s.logger.Info("start blockIP", "ip", ip)
 			s.blockIP(ip)
+		} else if ip != "" && !s.config.Fail2Ban {
+			s.logger.Warn("Fail2Ban disabled, skipping block", "ip", ip)
 		}
 	}
 
