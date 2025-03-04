@@ -45,6 +45,7 @@ func (s *Server) Start() error {
 }
 
 // eventHandler - обробляє вхідні події
+// eventHandler - обробляє вхідні події
 func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if _, ok := s.cfg.Server.Aliases[path]; !ok {
@@ -65,7 +66,9 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if event.IP != "" {
-		s.db.LogAction(event.IP, "event", "received", time.Now())
+		if err := s.db.LogAction(event.IP, "event", "received", time.Now()); err != nil {
+			log.Printf("Failed to log event to database: %v", err) // Логуємо помилку
+		}
 	} else {
 		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
 	}
@@ -95,9 +98,11 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 						status := "stored"
 						if sa.Name == "firewall" {
 							actionType = "block"
-							status = "blocked" // Записуємо статус blocked
+							status = "blocked"
 						}
-						s.db.LogAction(event.IP, actionType, status, time.Now())
+						if err := s.db.LogAction(event.IP, actionType, status, time.Now()); err != nil {
+							log.Printf("Failed to log action %s to database: %v", actionType, err)
+						}
 					}
 				}
 			}

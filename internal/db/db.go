@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -58,7 +59,11 @@ func (d *Database) CountEvents(ip string, window time.Duration) (int, error) {
 		"SELECT COUNT(*) FROM actions WHERE ip = ? AND timestamp >= ? AND action = 'event'",
 		ip, cutoff,
 	).Scan(&count)
-	return count, err
+	if err != nil {
+		log.Printf("Error counting events for IP %s: %v", ip, err) // Логуємо помилку
+		return 0, err
+	}
+	return count, nil
 }
 
 // GetActions - повертає список дій для веб-інтерфейсу
