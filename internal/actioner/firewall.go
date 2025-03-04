@@ -19,22 +19,33 @@ type FirewallActioner struct {
 }
 
 // NewFirewallActioner - створює новий FirewallActioner
-func NewFirewallActioner(cfg ActionerConfig) (*FirewallActioner, error) { // Без префікса actioner.
-	client, err := compute.NewFirewallsRESTClient(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	return &FirewallActioner{
+func NewFirewallActioner(cfg ActionerConfig) (*FirewallActioner, error) {
+	fa := &FirewallActioner{
 		projectID: cfg.Params["project_id"].(string),
 		timeout:   time.Duration(cfg.Params["timeout"].(int)) * time.Minute,
-		client:    client,
-	}, nil
+	}
+	var err error
+	fa.client, err = compute.NewFirewallsRESTClient(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create firewall client: %v", err)
+	}
+	return fa, nil
 }
 
 // Execute - виконує блокування IP
 func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) error {
 	if !fa.isIPBlocked(event.IP) {
-		priority := int(params["priority"].(float64))
+		// Обробка priority із підтримкою int і float64
+		var priority int
+		switch v := params["priority"].(type) {
+		case int:
+			priority = v
+		case float64:
+			priority = int(v)
+		default:
+			return fmt.Errorf("priority must be a number, got %T", v)
+		}
+
 		description := params["description"].(string)
 		fa.blockIP(event.IP, priority, description)
 		time.AfterFunc(fa.timeout, func() {
