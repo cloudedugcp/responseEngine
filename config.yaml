@@ -7,7 +7,7 @@ server:
 scenarios:
   - name: "block_ip"
     falco_rule: "Suspicious Network Activity"
-    conditions:  # Умови перенесено на рівень сценарію
+    conditions:
       trigger_count: 3
       time_window: "3600s"
     actioners:
@@ -15,6 +15,7 @@ scenarios:
         params:
           priority: 1000
           description: "Blocked by Falco rule"
+          timeout: "1m"  # Час блокування в форматі Go duration (наприклад, "5m" = 5 хвилин)
       - name: "storage"
         params:
           prefix: "blocked_ips/"
@@ -24,7 +25,7 @@ actioners:
     type: "gcp_firewall"
     params:
       project_id: "my-project"
-      timeout: 60
+      timeout: 60  # Базове значення, якщо не задано в сценарії
   storage:
     type: "gcp_storage"
     params:

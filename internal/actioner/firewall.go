@@ -15,7 +15,7 @@ import (
 // FirewallActioner - діяч для Google Cloud Firewall
 type FirewallActioner struct {
 	projectID string
-	timeout   time.Duration
+	timeout   time.Duration // Базове значення, якщо не задано в params
 	client    *compute.FirewallsClient
 }
 
@@ -23,8 +23,14 @@ type FirewallActioner struct {
 func NewFirewallActioner(cfg ActionerConfig) (*FirewallActioner, error) {
 	fa := &FirewallActioner{
 		projectID: cfg.Params["project_id"].(string),
-		timeout:   time.Duration(cfg.Params["timeout"].(int)) * time.Minute,
 	}
+	// Базовий timeout із конфігурації actioners
+	if timeout, ok := cfg.Params["timeout"].(int); ok {
+		fa.timeout = time.Duration(timeout) * time.Minute
+	} else {
+		fa.timeout = 60 * time.Minute // Значення за замовчуванням
+	}
+
 	var err error
 	fa.client, err = compute.NewFirewallsRESTClient(context.Background())
 	if err != nil {
@@ -47,10 +53,23 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		}
 
 		description := params["description"].(string)
+
+		// Отримуємо timeout із params сценарію, якщо є, інакше використовуємо базовий
+		var timeout time.Duration
+		if t, ok := params["timeout"].(string); ok {
+			var err error
+			timeout, err = time.ParseDuration(t) // Парсимо "5m", "1h" тощо
+			if err != nil {
+				return fmt.Errorf("invalid timeout format: %v", err)
+			}
+		} else {
+			timeout = fa.timeout // Базове значення з конфігурації actioners
+		}
+
 		if err := fa.blockIP(event.IP, priority, description); err != nil {
 			return fmt.Errorf("failed to block IP %s: %v", event.IP, err)
 		}
-		time.AfterFunc(fa.timeout, func() {
+		time.AfterFunc(timeout, func() {
 			if err := fa.unblockIP(event.IP); err != nil {
 				log.Printf("Failed to unblock IP %s: %v", event.IP, err)
 			}
@@ -78,13 +97,10 @@ func (fa *FirewallActioner) isIPBlocked(ip string) bool {
 
 // blockIP - блокує IP у GCP Firewall
 func (fa *FirewallActioner) blockIP(ip string, priority int, description string) error {
-	// Замінюємо крапки в IP на дефіси та додаємо унікальний суфікс
 	safeIP := strings.ReplaceAll(ip, ".", "-")
 	ruleName := fmt.Sprintf("block-%s-%d", safeIP, time.Now().UnixNano())
-	// Обрізаємо до 63 символів, якщо ім’я занадто довге
 	if len(ruleName) > 63 {
 		ruleName = ruleName[:63]
-		// Видаляємо дефіс із кінця, якщо він є
 		ruleName = strings.TrimRight(ruleName, "-")
 	}
 
@@ -118,7 +134,7 @@ func (fa *FirewallActioner) unblockIP(ip string) error {
 	req := &computepb.ListFirewallsRequest{Project: fa.projectID}
 	it := fa.client.List(context.Background(), req)
 	for firewall, err := it.Next(); err == nil; firewall, err = it.Next() {
-		if strings.Contains(*firewall.Name, safeIP) { // Перевіряємо, чи ім’я включає safeIP
+		if strings.Contains(*firewall.Name, safeIP) {
 			delReq := &computepb.DeleteFirewallRequest{
 				Project:  fa.projectID,
 				Firewall: *firewall.Name,
