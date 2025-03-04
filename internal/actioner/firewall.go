@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudedugcp/responseEngine/internal/db" // Додаємо імпорт для db
+
 	compute "cloud.google.com/go/compute/apiv1"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
@@ -15,20 +17,21 @@ import (
 // FirewallActioner - діяч для Google Cloud Firewall
 type FirewallActioner struct {
 	projectID string
-	timeout   time.Duration // Базове значення, якщо не задано в params
+	timeout   time.Duration
 	client    *compute.FirewallsClient
+	db        *db.Database // Додаємо поле db
 }
 
 // NewFirewallActioner - створює новий FirewallActioner
-func NewFirewallActioner(cfg ActionerConfig) (*FirewallActioner, error) {
+func NewFirewallActioner(cfg ActionerConfig, database *db.Database) (*FirewallActioner, error) {
 	fa := &FirewallActioner{
 		projectID: cfg.Params["project_id"].(string),
+		db:        database, // Ініціалізуємо БД
 	}
-	// Базовий timeout із конфігурації actioners
 	if timeout, ok := cfg.Params["timeout"].(int); ok {
 		fa.timeout = time.Duration(timeout) * time.Minute
 	} else {
-		fa.timeout = 60 * time.Minute // Значення за замовчуванням
+		fa.timeout = 60 * time.Minute
 	}
 
 	var err error
@@ -54,16 +57,15 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 
 		description := params["description"].(string)
 
-		// Отримуємо timeout із params сценарію, якщо є, інакше використовуємо базовий
 		var timeout time.Duration
 		if t, ok := params["timeout"].(string); ok {
 			var err error
-			timeout, err = time.ParseDuration(t) // Парсимо "5m", "1h" тощо
+			timeout, err = time.ParseDuration(t)
 			if err != nil {
 				return fmt.Errorf("invalid timeout format: %v", err)
 			}
 		} else {
-			timeout = fa.timeout // Базове значення з конфігурації actioners
+			timeout = fa.timeout
 		}
 
 		if err := fa.blockIP(event.IP, priority, description); err != nil {
@@ -72,6 +74,9 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		time.AfterFunc(timeout, func() {
 			if err := fa.unblockIP(event.IP); err != nil {
 				log.Printf("Failed to unblock IP %s: %v", event.IP, err)
+			} else {
+				log.Printf("Successfully unblocked IP %s after %s", event.IP, timeout)
+				fa.db.LogAction(event.IP, "block", "unblocked", time.Now()) // Записуємо розблокування
 			}
 		})
 	}

@@ -9,12 +9,14 @@
         <tr>
             <th>IP</th>
             <th>Action</th>
+            <th>Status</th>
             <th>Timestamp</th>
         </tr>
         {{range .Actions}}
         <tr>
             <td>{{.IP}}</td>
             <td>{{.Action}}</td>
+            <td>{{.Status}}</td>
             <td>{{.Timestamp}}</td>
         </tr>
         {{end}}

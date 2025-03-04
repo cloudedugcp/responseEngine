@@ -45,7 +45,6 @@ func (s *Server) Start() error {
 }
 
 // eventHandler - обробляє вхідні події
-// eventHandler - обробляє вхідні події
 func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if _, ok := s.cfg.Server.Aliases[path]; !ok {
@@ -59,7 +58,6 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Виводимо подію з логами, якщо вони є
 	if event.Log != "" {
 		log.Printf("Received event: IP=%s, Rule=%s, Log=%s, Time=%s", event.IP, event.RuleName, event.Log, time.Now().Format(time.RFC3339))
 	} else {
@@ -67,7 +65,7 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if event.IP != "" {
-		s.db.LogAction(event.IP, "event", time.Now())
+		s.db.LogAction(event.IP, "event", "received", time.Now())
 	} else {
 		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
 	}
@@ -94,10 +92,12 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 							log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
 						}
 						actionType := "store"
+						status := "stored"
 						if sa.Name == "firewall" {
 							actionType = "block"
+							status = "blocked" // Записуємо статус blocked
 						}
-						s.db.LogAction(event.IP, actionType, time.Now())
+						s.db.LogAction(event.IP, actionType, status, time.Now())
 					}
 				}
 			}
