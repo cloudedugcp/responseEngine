@@ -45,6 +45,7 @@ func (s *Server) Start() error {
 }
 
 // eventHandler - обробляє вхідні події
+// eventHandler - обробляє вхідні події
 func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if _, ok := s.cfg.Server.Aliases[path]; !ok {
@@ -60,15 +61,14 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
 
-	// Записуємо подію в БД одразу після отримання
-	if event.IP != "" { // Перевіряємо, чи IP не порожній
+	if event.IP != "" {
 		s.db.LogAction(event.IP, "event", time.Now())
 	} else {
 		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
 	}
 
 	for _, sc := range s.cfg.Scenarios {
-		if sc.FalcoRule == event.RuleName && event.IP != "" { // Додаємо перевірку на порожній IP
+		if sc.FalcoRule == event.RuleName && event.IP != "" {
 			shouldExecute := true
 			if sc.Conditions != nil {
 				shouldExecute = scenario.ShouldTrigger(*sc.Conditions, event, s.db)
@@ -82,7 +82,8 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 			if shouldExecute {
 				for _, sa := range sc.Actioners {
 					if actioner, ok := s.actioners[sa.Name]; ok {
-						if err := actioner.Execute(event, sa.Params); err != nil {
+						err := actioner.Execute(event, sa.Params)
+						if err != nil {
 							log.Printf("Error executing actioner %s: %v", sa.Name, err)
 						} else {
 							log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
@@ -91,7 +92,7 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 						if sa.Name == "firewall" {
 							actionType = "block"
 						}
-						s.db.LogAction(event.IP, actionType, time.Now()) // Логування дії
+						s.db.LogAction(event.IP, actionType, time.Now())
 					}
 				}
 			}

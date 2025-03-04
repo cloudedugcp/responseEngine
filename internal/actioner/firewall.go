@@ -35,7 +35,6 @@ func NewFirewallActioner(cfg ActionerConfig) (*FirewallActioner, error) {
 // Execute - виконує блокування IP
 func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) error {
 	if !fa.isIPBlocked(event.IP) {
-		// Обробка priority із підтримкою int і float64
 		var priority int
 		switch v := params["priority"].(type) {
 		case int:
@@ -47,7 +46,9 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		}
 
 		description := params["description"].(string)
-		fa.blockIP(event.IP, priority, description)
+		if err := fa.blockIP(event.IP, priority, description); err != nil {
+			return fmt.Errorf("failed to block IP %s: %v", event.IP, err)
+		}
 		time.AfterFunc(fa.timeout, func() {
 			if err := fa.unblockIP(event.IP); err != nil {
 				log.Printf("Failed to unblock IP %s: %v", event.IP, err)
@@ -75,7 +76,7 @@ func (fa *FirewallActioner) isIPBlocked(ip string) bool {
 }
 
 // blockIP - блокує IP у GCP Firewall
-func (fa *FirewallActioner) blockIP(ip string, priority int, description string) {
+func (fa *FirewallActioner) blockIP(ip string, priority int, description string) error {
 	rule := &computepb.Firewall{
 		Name:         proto.String(fmt.Sprintf("block-%s-%d", ip, time.Now().UnixNano())),
 		Description:  &description,
@@ -91,11 +92,13 @@ func (fa *FirewallActioner) blockIP(ip string, priority int, description string)
 	op, err := fa.client.Insert(context.Background(), req)
 	if err != nil {
 		log.Printf("Failed to block IP %s: %v", ip, err)
-		return
+		return err
 	}
 	if err := op.Wait(context.Background()); err != nil {
 		log.Printf("Failed to wait for firewall insertion: %v", err)
+		return err
 	}
+	return nil
 }
 
 // unblockIP - розблокує IP
