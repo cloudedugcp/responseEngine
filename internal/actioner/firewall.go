@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
@@ -77,8 +78,18 @@ func (fa *FirewallActioner) isIPBlocked(ip string) bool {
 
 // blockIP - блокує IP у GCP Firewall
 func (fa *FirewallActioner) blockIP(ip string, priority int, description string) error {
+	// Замінюємо крапки в IP на дефіси та додаємо унікальний суфікс
+	safeIP := strings.ReplaceAll(ip, ".", "-")
+	ruleName := fmt.Sprintf("block-%s-%d", safeIP, time.Now().UnixNano())
+	// Обрізаємо до 63 символів, якщо ім’я занадто довге
+	if len(ruleName) > 63 {
+		ruleName = ruleName[:63]
+		// Видаляємо дефіс із кінця, якщо він є
+		ruleName = strings.TrimRight(ruleName, "-")
+	}
+
 	rule := &computepb.Firewall{
-		Name:         proto.String(fmt.Sprintf("block-%s-%d", ip, time.Now().UnixNano())),
+		Name:         proto.String(ruleName),
 		Description:  &description,
 		Direction:    proto.String("INGRESS"),
 		Priority:     proto.Int32(int32(priority)),
@@ -103,21 +114,20 @@ func (fa *FirewallActioner) blockIP(ip string, priority int, description string)
 
 // unblockIP - розблокує IP
 func (fa *FirewallActioner) unblockIP(ip string) error {
+	safeIP := strings.ReplaceAll(ip, ".", "-")
 	req := &computepb.ListFirewallsRequest{Project: fa.projectID}
 	it := fa.client.List(context.Background(), req)
 	for firewall, err := it.Next(); err == nil; firewall, err = it.Next() {
-		for _, rule := range firewall.SourceRanges {
-			if rule == ip+"/32" {
-				delReq := &computepb.DeleteFirewallRequest{
-					Project:  fa.projectID,
-					Firewall: *firewall.Name,
-				}
-				op, err := fa.client.Delete(context.Background(), delReq)
-				if err != nil {
-					return err
-				}
-				return op.Wait(context.Background())
+		if strings.Contains(*firewall.Name, safeIP) { // Перевіряємо, чи ім’я включає safeIP
+			delReq := &computepb.DeleteFirewallRequest{
+				Project:  fa.projectID,
+				Firewall: *firewall.Name,
 			}
+			op, err := fa.client.Delete(context.Background(), delReq)
+			if err != nil {
+				return err
+			}
+			return op.Wait(context.Background())
 		}
 	}
 	return nil
