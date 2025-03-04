@@ -39,6 +39,12 @@ func (s *Server) Start() error {
 	// Веб-інтерфейс
 	mux.HandleFunc("/dashboard", web.DashboardHandler(s.db))
 
+	// Перевірка порту перед запуском
+	if s.cfg.Server.ListenPort == "" {
+		log.Println("Warning: ListenPort is empty, defaulting to :8080")
+		s.cfg.Server.ListenPort = ":8080"
+	}
+
 	return http.ListenAndServe(s.cfg.Server.ListenPort, mux)
 }
 
@@ -56,11 +62,19 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Вивід події в консоль
+	log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
+
 	for _, sc := range s.cfg.Scenarios {
 		if sc.FalcoRule == event.RuleName {
 			shouldExecute := true
 			if sc.Conditions != nil {
-				shouldExecute = scenario.ShouldTrigger(*sc.Conditions, event, s.db) // Тип уже співпадає
+				shouldExecute = scenario.ShouldTrigger(*sc.Conditions, event, s.db)
+				if shouldExecute {
+					log.Printf("Scenario '%s' triggered for IP=%s (conditions met)", sc.Name, event.IP)
+				} else {
+					log.Printf("Scenario '%s' conditions not met for IP=%s", sc.Name, event.IP)
+				}
 			}
 
 			if shouldExecute {
@@ -68,6 +82,8 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 					if actioner, ok := s.actioners[sa.Name]; ok {
 						if err := actioner.Execute(event, sa.Params); err != nil {
 							log.Printf("Error executing actioner %s: %v", sa.Name, err)
+						} else {
+							log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
 						}
 						actionType := "store"
 						if sa.Name == "firewall" {
