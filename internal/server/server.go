@@ -45,7 +45,6 @@ func (s *Server) Start() error {
 }
 
 // eventHandler - обробляє вхідні події
-// eventHandler - обробляє вхідні події
 func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if _, ok := s.cfg.Server.Aliases[path]; !ok {
@@ -66,8 +65,8 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if event.IP != "" {
-		if err := s.db.LogAction(event.IP, "event", "received", time.Now()); err != nil {
-			log.Printf("Failed to log event to database: %v", err) // Логуємо помилку
+		if err := s.db.LogAction(event.IP, event.RuleName, "received", time.Now()); err != nil {
+			log.Printf("Failed to log event to database: %v", err)
 		}
 	} else {
 		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
@@ -93,15 +92,15 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 							log.Printf("Error executing actioner %s: %v", sa.Name, err)
 						} else {
 							log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
-						}
-						actionType := "store"
-						status := "stored"
-						if sa.Name == "firewall" {
-							actionType = "block"
-							status = "blocked"
-						}
-						if err := s.db.LogAction(event.IP, actionType, status, time.Now()); err != nil {
-							log.Printf("Failed to log action %s to database: %v", actionType, err)
+							actionType := "store"
+							status := "stored"
+							if sa.Name == "firewall" {
+								actionType = "block"
+								status = "blocked"
+							}
+							if err := s.db.LogAction(event.IP, actionType, status, time.Now()); err != nil {
+								log.Printf("Failed to log action %s to database: %v", actionType, err)
+							}
 						}
 					}
 				}

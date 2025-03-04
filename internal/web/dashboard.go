@@ -14,7 +14,7 @@ func DashboardHandler(database *db.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actions, err := database.GetActions()
 		if err != nil {
-			log.Printf("Failed to load actions from database: %v", err) // Логуємо помилку
+			log.Printf("Failed to load actions from database: %v", err)
 			http.Error(w, "Failed to load actions", http.StatusInternalServerError)
 			return
 		}

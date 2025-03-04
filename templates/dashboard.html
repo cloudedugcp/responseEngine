@@ -4,20 +4,26 @@
     <title>Response Engine Dashboard</title>
 </head>
 <body>
-    <h1>Action Logs</h1>
+    <h1>IP Action Logs</h1>
     <table border="1">
         <tr>
             <th>IP</th>
-            <th>Action</th>
+            <th>Last Event</th>
+            <th>Attempt Count</th>
+            <th>Last Attempt Time</th>
+            <th>Block Time</th>
+            <th>Unblock Time</th>
             <th>Status</th>
-            <th>Timestamp</th>
         </tr>
         {{range .Actions}}
         <tr>
             <td>{{.IP}}</td>
-            <td>{{.Action}}</td>
+            <td>{{.LastEvent}}</td>
+            <td>{{.AttemptCount}}</td>
+            <td>{{.LastAttemptTime}}</td>
+            <td>{{if .BlockTime.IsZero}}N/A{{else}}{{.BlockTime}}{{end}}</td>
+            <td>{{if .UnblockTime.IsZero}}N/A{{else}}{{.UnblockTime}}{{end}}</td>
             <td>{{.Status}}</td>
-            <td>{{.Timestamp}}</td>
         </tr>
         {{end}}
     </table>
