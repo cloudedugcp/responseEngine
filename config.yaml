@@ -9,7 +9,7 @@ scenarios:
     falco_rule: "Suspicious Network Activity"
     conditions:  # Умови перенесено на рівень сценарію
       trigger_count: 3
-      time_window: 3600
+      time_window: "3600s"
     actioners:
       - name: "firewall"
         params:

@@ -16,6 +16,9 @@ type ScenarioConditions struct {
 
 // ShouldTrigger - перевіряє, чи потрібно спрацьовувати діячу
 func ShouldTrigger(conditions ScenarioConditions, event actioner.Event, db *db.Database) bool {
+	if conditions.TimeWindow == 0 {
+		log.Printf("Warning: TimeWindow is 0, conditions will always fail")
+	}
 	count, err := db.CountEvents(event.IP, conditions.TimeWindow)
 	if err != nil {
 		log.Printf("Error counting events for IP %s: %v", event.IP, err)

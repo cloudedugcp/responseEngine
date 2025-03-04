@@ -33,13 +33,9 @@ func NewServer(cfg *config.Config, database *db.Database, actioners map[string]a
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Обробник подій
 	mux.HandleFunc("/", s.eventHandler)
-
-	// Веб-інтерфейс
 	mux.HandleFunc("/dashboard", web.DashboardHandler(s.db))
 
-	// Перевірка порту перед запуском
 	if s.cfg.Server.ListenPort == "" {
 		log.Println("Warning: ListenPort is empty, defaulting to :8080")
 		s.cfg.Server.ListenPort = ":8080"
@@ -62,11 +58,17 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Вивід події в консоль
 	log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
 
+	// Записуємо подію в БД одразу після отримання
+	if event.IP != "" { // Перевіряємо, чи IP не порожній
+		s.db.LogAction(event.IP, "event", time.Now())
+	} else {
+		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
+	}
+
 	for _, sc := range s.cfg.Scenarios {
-		if sc.FalcoRule == event.RuleName {
+		if sc.FalcoRule == event.RuleName && event.IP != "" { // Додаємо перевірку на порожній IP
 			shouldExecute := true
 			if sc.Conditions != nil {
 				shouldExecute = scenario.ShouldTrigger(*sc.Conditions, event, s.db)
@@ -89,7 +91,7 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 						if sa.Name == "firewall" {
 							actionType = "block"
 						}
-						s.db.LogAction(event.IP, actionType, time.Now())
+						s.db.LogAction(event.IP, actionType, time.Now()) // Логування дії
 					}
 				}
 			}
