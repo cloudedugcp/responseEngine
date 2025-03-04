@@ -4,6 +4,7 @@ package actioner
 type Event struct {
 	IP       string `json:"ip"`
 	RuleName string `json:"rule"`
+	Log      string `json:"log,omitempty"` // Додаємо поле для логів, опціональне
 }
 
 // Actioner - інтерфейс для виконавців дій
@@ -12,7 +13,7 @@ type Actioner interface {
 	Name() string
 }
 
-// ActionerConfig - конфігурація діяча (тепер тут)
+// ActionerConfig - конфігурація діяча
 type ActionerConfig struct {
 	Type   string                 `mapstructure:"type"`
 	Params map[string]interface{} `mapstructure:"params"`

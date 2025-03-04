@@ -59,7 +59,12 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
+	// Виводимо подію з логами, якщо вони є
+	if event.Log != "" {
+		log.Printf("Received event: IP=%s, Rule=%s, Log=%s, Time=%s", event.IP, event.RuleName, event.Log, time.Now().Format(time.RFC3339))
+	} else {
+		log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
+	}
 
 	if event.IP != "" {
 		s.db.LogAction(event.IP, "event", time.Now())
