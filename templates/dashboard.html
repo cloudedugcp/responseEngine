@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Response Engine Dashboard</title>
+</head>
+<body>
+    <h1>Action Logs</h1>
+    <table border="1">
+        <tr>
+            <th>IP</th>
+            <th>Action</th>
+            <th>Timestamp</th>
+        </tr>
+        {{range .Actions}}
+        <tr>
+            <td>{{.IP}}</td>
+            <td>{{.Action}}</td>
+            <td>{{.Timestamp}}</td>
+        </tr>
+        {{end}}
+    </table>
+</body>
+</html>

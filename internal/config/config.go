@@ -1,44 +1,45 @@
 package config
 
 import (
-	"fmt"
-	"os"
-
-	"gopkg.in/yaml.v3"
+	"github.com/cloudedugcp/responseEngine/internal/actioner" // Імпорт для ActionerConfig
+	"github.com/cloudedugcp/responseEngine/internal/scenario"
+	"github.com/spf13/viper"
 )
 
-// Config represents the server configuration.
+// Config - структура конфігурації
 type Config struct {
-	Server struct {
-		Addr     string `yaml:"addr"`
-		Fail2Ban bool   `yaml:"fail2ban_enabled"`
-		BanTime  int    `yaml:"ban_time"`
-		LogPath  string `yaml:"log_path"`
-		JailName string `yaml:"jail_name"`
-	} `yaml:"server"`
+	Server    ServerConfig                       `mapstructure:"server"`
+	Scenarios []Scenario                         `mapstructure:"scenarios"`
+	Actioners map[string]actioner.ActionerConfig `mapstructure:"actioners"` // Використовуємо actioner.ActionerConfig
 }
 
-// Load configuration from a YAML file.
-func Load(configPath string) (Config, error) {
+type ServerConfig struct {
+	ListenPort string            `mapstructure:"port"`
+	Aliases    map[string]string `mapstructure:"aliases"`
+}
+
+type Scenario struct {
+	Name       string                       `mapstructure:"name"`
+	FalcoRule  string                       `mapstructure:"falco_rule"`
+	Conditions *scenario.ScenarioConditions `mapstructure:"conditions"`
+	Actioners  []ScenarioActioner           `mapstructure:"actioners"`
+}
+
+type ScenarioActioner struct {
+	Name   string                 `mapstructure:"name"`
+	Params map[string]interface{} `mapstructure:"params"`
+}
+
+// LoadConfig - завантажує конфігурацію з файлу
+func LoadConfig(path string) (*Config, error) {
+	viper.SetConfigFile(path)
+	if err := viper.ReadInConfig(); err != nil {
+		return nil, err
+	}
+
 	var cfg Config
-	//default values
-	cfg.Server.Addr = "0.0.0.0:8080"
-	cfg.Server.Fail2Ban = true
-	cfg.Server.BanTime = 3600
-	cfg.Server.LogPath = "/var/log/falco.log"
-	cfg.Server.JailName = "falco"
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-		return cfg, fmt.Errorf("failed to read config file: %w", err)
+	if err := viper.Unmarshal(&cfg); err != nil {
+		return nil, err
 	}
-
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	return cfg, nil
+	return &cfg, nil
 }

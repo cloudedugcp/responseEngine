@@ -1,6 +1,32 @@
 server:
-  addr: "0.0.0.0:8080"
-  fail2ban_enabled: true
-  ban_time: 1200
-  log_path: "/var/log/falco.log"
-  jail_name: "falco"
+  port: ":8080"
+  aliases:
+    "/falco": "falco_events"
+    "/cilium": "cilium_events"
+
+scenarios:
+  - name: "block_ip"
+    falco_rule: "Suspicious Network Activity"
+    conditions:  # Умови перенесено на рівень сценарію
+      trigger_count: 3
+      time_window: 3600
+    actioners:
+      - name: "firewall"
+        params:
+          priority: 1000
+          description: "Blocked by Falco rule"
+      - name: "storage"
+        params:
+          prefix: "blocked_ips/"
+
+actioners:
+  firewall:
+    type: "gcp_firewall"
+    params:
+      project_id: "my-project"
+      timeout: 60
+  storage:
+    type: "gcp_storage"
+    params:
+      bucket_name: "my-logs-bucket"
+      log_count: 100
