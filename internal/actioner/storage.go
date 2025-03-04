@@ -17,14 +17,26 @@ type StorageActioner struct {
 }
 
 // NewStorageActioner - створює новий StorageActioner
-func NewStorageActioner(cfg ActionerConfig) (*StorageActioner, error) { // Без префікса actioner.
+func NewStorageActioner(cfg ActionerConfig) (*StorageActioner, error) {
 	client, err := storage.NewClient(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create storage client: %v", err)
 	}
+
+	// Обробка log_count із підтримкою int і float64
+	var logCount int
+	switch v := cfg.Params["log_count"].(type) {
+	case int:
+		logCount = v
+	case float64:
+		logCount = int(v)
+	default:
+		return nil, fmt.Errorf("log_count must be a number, got %T", v)
+	}
+
 	return &StorageActioner{
 		bucketName: cfg.Params["bucket_name"].(string),
-		logCount:   int(cfg.Params["log_count"].(float64)),
+		logCount:   logCount,
 		client:     client,
 	}, nil
 }
