@@ -7,35 +7,45 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudedugcp/responseEngine/internal/db" // Додаємо імпорт для db
-
 	compute "cloud.google.com/go/compute/apiv1"
+	"github.com/cloudedugcp/responseEngine/internal/db"
+	"google.golang.org/api/option"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 )
 
 // FirewallActioner - діяч для Google Cloud Firewall
 type FirewallActioner struct {
-	projectID string
-	timeout   time.Duration
-	client    *compute.FirewallsClient
-	db        *db.Database // Додаємо поле db
+	projectID       string
+	timeout         time.Duration
+	client          *compute.FirewallsClient
+	db              *db.Database
+	multiplyTimeout bool
 }
 
 // NewFirewallActioner - створює новий FirewallActioner
 func NewFirewallActioner(cfg ActionerConfig, database *db.Database) (*FirewallActioner, error) {
 	fa := &FirewallActioner{
 		projectID: cfg.Params["project_id"].(string),
-		db:        database, // Ініціалізуємо БД
+		db:        database,
 	}
 	if timeout, ok := cfg.Params["timeout"].(int); ok {
 		fa.timeout = time.Duration(timeout) * time.Minute
 	} else {
 		fa.timeout = 60 * time.Minute
 	}
+	if multiply, ok := cfg.Params["multiply_timeout"].(bool); ok {
+		fa.multiplyTimeout = multiply
+	}
+
+	// Використовуємо credentials_file, якщо вказано
+	var clientOptions []option.ClientOption
+	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
+		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))
+	}
 
 	var err error
-	fa.client, err = compute.NewFirewallsRESTClient(context.Background())
+	fa.client, err = compute.NewFirewallsRESTClient(context.Background(), clientOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create firewall client: %v", err)
 	}
@@ -57,15 +67,27 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 
 		description := params["description"].(string)
 
-		var timeout time.Duration
+		var baseTimeout time.Duration
 		if t, ok := params["timeout"].(string); ok {
 			var err error
-			timeout, err = time.ParseDuration(t)
+			baseTimeout, err = time.ParseDuration(t)
 			if err != nil {
 				return fmt.Errorf("invalid timeout format: %v", err)
 			}
 		} else {
-			timeout = fa.timeout
+			baseTimeout = fa.timeout
+		}
+
+		blockCount, err := fa.db.GetBlockCount(event.IP)
+		if err != nil {
+			log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
+			blockCount = 0
+		}
+
+		timeout := baseTimeout
+		if fa.multiplyTimeout {
+			timeout = baseTimeout * time.Duration(blockCount+1)
+			log.Printf("Blocking IP %s for %s (block count: %d)", event.IP, timeout, blockCount+1)
 		}
 
 		if err := fa.blockIP(event.IP, priority, description); err != nil {
@@ -76,7 +98,7 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 				log.Printf("Failed to unblock IP %s: %v", event.IP, err)
 			} else {
 				log.Printf("Successfully unblocked IP %s after %s", event.IP, timeout)
-				fa.db.LogAction(event.IP, "block", "unblocked", time.Now()) // Записуємо розблокування
+				fa.db.LogAction(event.IP, "block", "unblocked", time.Now())
 			}
 		})
 	}

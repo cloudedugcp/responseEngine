@@ -10,7 +10,7 @@ import (
 
 // DashboardHandler - обробник для веб-інтерфейсу
 func DashboardHandler(database *db.Database) http.HandlerFunc {
-	tmpl := template.Must(template.ParseFiles("templates/dashboard.html"))
+	tmpl := template.Must(template.ParseFiles("internal/web/templates/dashboard.html")) // Оновлений шлях
 	return func(w http.ResponseWriter, r *http.Request) {
 		actions, err := database.GetActions()
 		if err != nil {

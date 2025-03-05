@@ -15,7 +15,7 @@ scenarios:
         params:
           priority: 1000
           description: "Blocked by Falco rule"
-          timeout: "1m"  # Час блокування в форматі Go duration (наприклад, "5m" = 5 хвилин)
+          timeout: "5m"
       - name: "storage"
         params:
           prefix: "blocked_ips/"
@@ -25,9 +25,12 @@ actioners:
     type: "gcp_firewall"
     params:
       project_id: "my-project"
-      timeout: 60  # Базове значення, якщо не задано в сценарії
+      timeout: 60
+      multiply_timeout: true
+      credentials_file: "/path/to/firewall-service-account.json" # Шлях до файлу для firewall
   storage:
     type: "gcp_storage"
     params:
       bucket_name: "my-logs-bucket"
       log_count: 100
+      credentials_file: "/path/to/storage-service-account.json" # Шлях до файлу для storage

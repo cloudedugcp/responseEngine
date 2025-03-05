@@ -13,6 +13,7 @@
             <th>Last Attempt Time</th>
             <th>Block Time</th>
             <th>Unblock Time</th>
+            <th>Block Count</th>
             <th>Status</th>
         </tr>
         {{range .Actions}}
@@ -23,6 +24,7 @@
             <td>{{.LastAttemptTime}}</td>
             <td>{{if .BlockTime.IsZero}}N/A{{else}}{{.BlockTime}}{{end}}</td>
             <td>{{if .UnblockTime.IsZero}}N/A{{else}}{{.UnblockTime}}{{end}}</td>
+            <td>{{.BlockCount}}</td>
             <td>{{.Status}}</td>
         </tr>
         {{end}}

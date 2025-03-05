@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/option"
 )
 
 // StorageActioner - діяч для Google Cloud Storage
@@ -18,7 +19,12 @@ type StorageActioner struct {
 
 // NewStorageActioner - створює новий StorageActioner
 func NewStorageActioner(cfg ActionerConfig) (*StorageActioner, error) {
-	client, err := storage.NewClient(context.Background())
+	var clientOptions []option.ClientOption
+	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
+		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))
+	}
+
+	client, err := storage.NewClient(context.Background(), clientOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage client: %v", err)
 	}
@@ -47,7 +53,6 @@ func (sa *StorageActioner) Execute(event Event, params map[string]interface{}) e
 	bucket := sa.client.Bucket(sa.bucketName)
 	objectName := fmt.Sprintf("%s%s_%d", prefix, event.IP, time.Now().UnixNano())
 
-	// Використовуємо лог із події, якщо він є, інакше записуємо базову інформацію
 	logData := event.Log
 	if logData == "" {
 		logData = fmt.Sprintf("IP: %s, Rule: %s, Time: %s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
@@ -64,7 +69,6 @@ func (sa *StorageActioner) Execute(event Event, params map[string]interface{}) e
 		return fmt.Errorf("failed to close storage writer: %v", err)
 	}
 
-	// Перевірка запису
 	attrs, err := bucket.Object(objectName).Attrs(ctx)
 	if err != nil {
 		log.Printf("Failed to verify storage object %s: %v", objectName, err)
