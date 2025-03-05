@@ -38,7 +38,6 @@ func NewFirewallActioner(cfg ActionerConfig, database *db.Database) (*FirewallAc
 		fa.multiplyTimeout = multiply
 	}
 
-	// Використовуємо credentials_file, якщо вказано
 	var clientOptions []option.ClientOption
 	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
 		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))
@@ -54,54 +53,57 @@ func NewFirewallActioner(cfg ActionerConfig, database *db.Database) (*FirewallAc
 
 // Execute - виконує блокування IP
 func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) error {
-	if !fa.isIPBlocked(event.IP) {
-		var priority int
-		switch v := params["priority"].(type) {
-		case int:
-			priority = v
-		case float64:
-			priority = int(v)
-		default:
-			return fmt.Errorf("priority must be a number, got %T", v)
-		}
-
-		description := params["description"].(string)
-
-		var baseTimeout time.Duration
-		if t, ok := params["timeout"].(string); ok {
-			var err error
-			baseTimeout, err = time.ParseDuration(t)
-			if err != nil {
-				return fmt.Errorf("invalid timeout format: %v", err)
-			}
-		} else {
-			baseTimeout = fa.timeout
-		}
-
-		blockCount, err := fa.db.GetBlockCount(event.IP)
-		if err != nil {
-			log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
-			blockCount = 0
-		}
-
-		timeout := baseTimeout
-		if fa.multiplyTimeout {
-			timeout = baseTimeout * time.Duration(blockCount+1)
-			log.Printf("Blocking IP %s for %s (block count: %d)", event.IP, timeout, blockCount+1)
-		}
-
-		if err := fa.blockIP(event.IP, priority, description); err != nil {
-			return fmt.Errorf("failed to block IP %s: %v", event.IP, err)
-		}
-		time.AfterFunc(timeout, func() {
-			if err := fa.unblockIP(event.IP); err != nil {
-				log.Printf("Failed to unblock IP %s: %v", event.IP, err)
-			} else {
-				log.Printf("Successfully unblocked IP %s after %s", event.IP, timeout)
-				fa.db.LogAction(event.IP, "block", "unblocked", time.Now())
-			}
-		})
+	if fa.isIPBlocked(event.IP) {
+		log.Printf("IP %s is already blocked, skipping further action", event.IP)
+		return nil // IP уже заблокована, виходимо без помилки
 	}
+
+	var priority int
+	switch v := params["priority"].(type) {
+	case int:
+		priority = v
+	case float64:
+		priority = int(v)
+	default:
+		return fmt.Errorf("priority must be a number, got %T", v)
+	}
+
+	description := params["description"].(string)
+
+	var baseTimeout time.Duration
+	if t, ok := params["timeout"].(string); ok {
+		var err error
+		baseTimeout, err = time.ParseDuration(t)
+		if err != nil {
+			return fmt.Errorf("invalid timeout format: %v", err)
+		}
+	} else {
+		baseTimeout = fa.timeout
+	}
+
+	blockCount, err := fa.db.GetBlockCount(event.IP)
+	if err != nil {
+		log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
+		blockCount = 0
+	}
+
+	timeout := baseTimeout
+	if fa.multiplyTimeout {
+		timeout = baseTimeout * time.Duration(blockCount+1)
+		log.Printf("Blocking IP %s for %s (block count: %d)", event.IP, timeout, blockCount+1)
+	}
+
+	if err := fa.blockIP(event.IP, priority, description); err != nil {
+		return fmt.Errorf("failed to block IP %s: %v", event.IP, err)
+	}
+	time.AfterFunc(timeout, func() {
+		if err := fa.unblockIP(event.IP); err != nil {
+			log.Printf("Failed to unblock IP %s: %v", event.IP, err)
+		} else {
+			log.Printf("Successfully unblocked IP %s after %s", event.IP, timeout)
+			fa.db.LogAction(event.IP, "block", "unblocked", time.Now())
+		}
+	})
 	return nil
 }
 
