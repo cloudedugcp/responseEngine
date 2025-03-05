@@ -19,6 +19,9 @@ scenarios:
       - name: "storage"
         params:
           prefix: "blocked_ips/"
+      - name: "sigma"  # Новий діяч
+        params:
+          prefix: "sigma_rules/"
 
 actioners:
   firewall:
@@ -27,10 +30,15 @@ actioners:
       project_id: "my-project"
       timeout: 60
       multiply_timeout: true
-      credentials_file: "/path/to/firewall-service-account.json" # Шлях до файлу для firewall
+      credentials_file: "/path/to/firewall-service-account.json"
   storage:
     type: "gcp_storage"
     params:
       bucket_name: "my-logs-bucket"
       log_count: 100
-      credentials_file: "/path/to/storage-service-account.json" # Шлях до файлу для storage
+      credentials_file: "/path/to/storage-service-account.json"
+  sigma:
+    type: "sigma_storage"  # Новий тип діяча
+    params:
+      bucket_name: "my-logs-bucket"  # Може бути окремий бакет
+      credentials_file: "/path/to/sigma-service-account.json"

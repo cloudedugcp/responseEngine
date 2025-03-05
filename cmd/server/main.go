@@ -25,7 +25,7 @@ func main() {
 	for name, acfg := range cfg.Actioners {
 		switch acfg.Type {
 		case "gcp_firewall":
-			fw, err := actioner.NewFirewallActioner(acfg, database) // Додаємо database
+			fw, err := actioner.NewFirewallActioner(acfg, database)
 			if err != nil {
 				log.Printf("Failed to initialize firewall actioner: %v", err)
 				continue
@@ -38,6 +38,13 @@ func main() {
 				continue
 			}
 			actioners[name] = st
+		case "sigma_storage": // Новий тип діяча
+			sg, err := actioner.NewSigmaActioner(acfg)
+			if err != nil {
+				log.Printf("Failed to initialize sigma actioner: %v", err)
+				continue
+			}
+			actioners[name] = sg
 		}
 	}
 
