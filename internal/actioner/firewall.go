@@ -65,7 +65,22 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 	if err != nil {
 		log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
 	}
-	// Замінюємо крапки на дефіси в IP-адресі
+
+	timeoutStr, ok := params["timeout"].(string)
+	if !ok {
+		return fmt.Errorf("timeout must be a string, got %T", params["timeout"])
+	}
+	timeoutDuration, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid timeout value %s: %v", timeoutStr, err)
+	}
+
+	// Множимо час блокування на Block Count, якщо він > 0
+	effectiveTimeout := timeoutDuration
+	if blockCount > 0 {
+		effectiveTimeout = timeoutDuration * time.Duration(blockCount+1)
+	}
+
 	safeIP := strings.ReplaceAll(event.IP, ".", "-")
 	ruleName := fmt.Sprintf("block-ip-%s-%d", safeIP, blockCount+1)
 
@@ -95,13 +110,49 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		return fmt.Errorf("failed to insert firewall rule: %v", err)
 	}
 
-	log.Printf("Waiting for firewall operation to complete")
 	if err := op.Wait(ctx); err != nil {
 		log.Printf("Failed to wait for firewall operation: %v", err)
 		return fmt.Errorf("failed to wait for firewall operation: %v", err)
 	}
 
-	log.Printf("Firewall rule %s inserted successfully", ruleName)
+	// Логуємо блокування в базу даних
+	blockTime := time.Now()
+	unblockTime := blockTime.Add(effectiveTimeout)
+	if err := fa.db.LogAction(event.IP, "block", "blocked", blockTime); err != nil {
+		log.Printf("Failed to log block action for IP %s: %v", event.IP, err)
+	}
+	log.Printf("Firewall rule %s inserted successfully, will unblock at %s", ruleName, unblockTime)
+
+	// Запускаємо горутину для розблокування
+	go func() {
+		time.Sleep(effectiveTimeout)
+		unblockCtx, unblockCancel := context.WithTimeout(context.Background(), fa.timeout)
+		defer unblockCancel()
+
+		log.Printf("Removing firewall rule %s for IP %s", ruleName, event.IP)
+		deleteOp, err := fa.client.Delete(unblockCtx, &computepb.DeleteFirewallRequest{
+			Project:  fa.projectID,
+			Firewall: ruleName,
+		})
+		if err != nil {
+			log.Printf("Failed to delete firewall rule %s: %v", ruleName, err)
+			return
+		}
+		if err := deleteOp.Wait(unblockCtx); err != nil {
+			log.Printf("Failed to wait for delete operation: %v", err)
+			return
+		}
+
+		// Оновлюємо статус і скидаємо Attempt Count
+		if err := fa.db.LogAction(event.IP, "unblock", "unblocked", time.Now()); err != nil {
+			log.Printf("Failed to log unblock action for IP %s: %v", event.IP, err)
+		}
+		if err := fa.db.ResetAttemptCount(event.IP); err != nil {
+			log.Printf("Failed to reset attempt count for IP %s: %v", event.IP, err)
+		}
+		log.Printf("Firewall rule %s removed successfully, IP %s unblocked", ruleName, event.IP)
+	}()
+
 	return nil
 }
 
