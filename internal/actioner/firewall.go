@@ -9,6 +9,7 @@ import (
 	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"github.com/cloudedugcp/responseEngine/internal/db"
+	"google.golang.org/api/option"
 )
 
 // FirewallActioner реалізує блокування IP через GCP Firewall
@@ -23,10 +24,14 @@ type FirewallActioner struct {
 // NewFirewallActioner створює новий FirewallActioner
 func NewFirewallActioner(projectID, credentialsFile string, timeout time.Duration, db *db.Database) (*FirewallActioner, error) {
 	ctx := context.Background()
-	client, err := compute.NewFirewallsRESTClient(ctx)
+	log.Printf("Initializing FirewallActioner with projectID=%s, credentialsFile=%s, timeout=%s", projectID, credentialsFile, timeout)
+
+	client, err := compute.NewFirewallsRESTClient(ctx, option.WithCredentialsFile(credentialsFile))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create firewall client: %v", err)
 	}
+	log.Printf("Firewall client initialized successfully for project %s", projectID)
+
 	return &FirewallActioner{
 		client:      client,
 		projectID:   projectID,
@@ -77,18 +82,23 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 	ctx, cancel := context.WithTimeout(context.Background(), fa.timeout)
 	defer cancel()
 
+	log.Printf("Inserting firewall rule: name=%s, project=%s, priority=%d", ruleName, fa.projectID, priority)
 	op, err := fa.client.Insert(ctx, &computepb.InsertFirewallRequest{
 		Project:          fa.projectID,
 		FirewallResource: firewall,
 	})
 	if err != nil {
+		log.Printf("Failed to insert firewall rule: %v", err)
 		return fmt.Errorf("failed to insert firewall rule: %v", err)
 	}
 
+	log.Printf("Waiting for firewall operation to complete")
 	if err := op.Wait(ctx); err != nil {
+		log.Printf("Failed to wait for firewall operation: %v", err)
 		return fmt.Errorf("failed to wait for firewall operation: %v", err)
 	}
 
+	log.Printf("Firewall rule %s inserted successfully", ruleName)
 	return nil
 }
 
