@@ -48,28 +48,39 @@ func (sn *SlackNotifier) Notify(event types.Event, scenario string, actioners []
 
 // HandleCallback обробляє callback від Slack
 func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, actioners map[string]types.Actioner) {
-	var payload slack.InteractionCallback
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Failed to decode Slack payload", http.StatusBadRequest)
+	log.Printf("Received callback request: method=%s, path=%s", r.Method, r.URL.Path)
+	if r.Method != http.MethodPost {
+		log.Printf("Invalid method for callback: %s", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	log.Printf("Received payload: %+v", payload)
+
+	var payload slack.InteractionCallback
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Printf("Failed to decode Slack payload: %v", err)
+		http.Error(w, "Failed to decode payload", http.StatusBadRequest)
+		return
+	}
+	log.Printf("Received Slack payload: action_id=%s, actions=%+v", payload.ActionID, payload.ActionCallback.BlockActions)
 
 	for _, action := range payload.ActionCallback.BlockActions {
-		log.Printf("Action ID: %s, Value: %s", action.ActionID, action.Value)
+		log.Printf("Processing action: ActionID=%s, Value=%s", action.ActionID, action.Value)
 		actionerName := action.Value
 		if act, ok := actioners[actionerName]; ok {
-			event := types.Event{ // Змінено на types.Event
+			event := types.Event{
 				IP:        extractIPFromMessage(payload.Message.Text),
 				RuleName:  "Suspicious Network Activity",
 				Log:       "Slack triggered",
 				Timestamp: time.Now(),
 			}
-			if err := act.Execute(event, map[string]interface{}{"priority": 1000, "timeout": "5m"}); err != nil {
+			log.Printf("Executing actioner %s with event: %+v", actionerName, event)
+			if err := act.Execute(event, map[string]interface{}{"priority": 1000, "bantime": "5m"}); err != nil {
 				log.Printf("Failed to execute actioner %s: %v", actionerName, err)
 			} else {
 				log.Printf("Actioner %s executed successfully via Slack", actionerName)
 			}
+		} else {
+			log.Printf("Actioner %s not found in actioners map", actionerName)
 		}
 	}
 	w.WriteHeader(http.StatusOK)
