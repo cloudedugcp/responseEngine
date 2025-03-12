@@ -29,11 +29,12 @@ func main() {
 		case "gcp_firewall":
 			timeoutStr, ok := actCfg.Params["timeout"].(string)
 			if !ok {
-				log.Fatalf("Invalid timeout for actioner %s", name)
+				log.Printf("Warning: timeout not specified for actioner %s, using default 30s", name)
+				timeoutStr = "30s" // Тайм-аут для операцій GCP
 			}
 			timeout, err := time.ParseDuration(timeoutStr)
 			if err != nil {
-				log.Fatalf("Failed to parse timeout for actioner %s: %v", name, err)
+				log.Fatalf("Failed to parse timeout %s for actioner %s: %v", timeoutStr, name, err)
 			}
 			projectID, _ := actCfg.Params["project_id"].(string)
 			credentialsFile, _ := actCfg.Params["credentials_file"].(string)

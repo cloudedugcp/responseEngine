@@ -18,7 +18,7 @@ import (
 type FirewallActioner struct {
 	client      *compute.FirewallsClient
 	projectID   string
-	timeout     time.Duration
+	timeout     time.Duration // Тайм-аут для операцій GCP
 	db          *db.Database
 	description string
 }
@@ -62,23 +62,24 @@ func (fa *FirewallActioner) Execute(event types.Event, params map[string]interfa
 		fa.description = description
 	}
 
+	bantimeStr, ok := params["bantime"].(string)
+	if !ok {
+		log.Printf("Warning: bantime not specified for IP %s, using default 5m", event.IP)
+		bantimeStr = "5m" // Значення за замовчуванням
+	}
+	bantime, err := time.ParseDuration(bantimeStr)
+	if err != nil {
+		return fmt.Errorf("invalid bantime value %s: %v", bantimeStr, err)
+	}
+
 	blockCount, err := fa.db.GetBlockCount(event.IP)
 	if err != nil {
 		log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
 	}
 
-	timeoutStr, ok := params["timeout"].(string)
-	if !ok {
-		return fmt.Errorf("timeout must be a string, got %T", params["timeout"])
-	}
-	timeoutDuration, err := time.ParseDuration(timeoutStr)
-	if err != nil {
-		return fmt.Errorf("invalid timeout value %s: %v", timeoutStr, err)
-	}
-
-	effectiveTimeout := timeoutDuration
+	effectiveBantime := bantime
 	if blockCount > 0 {
-		effectiveTimeout = timeoutDuration * time.Duration(blockCount+1)
+		effectiveBantime = bantime * time.Duration(blockCount+1)
 	}
 
 	safeIP := strings.ReplaceAll(event.IP, ".", "-")
@@ -116,14 +117,14 @@ func (fa *FirewallActioner) Execute(event types.Event, params map[string]interfa
 	}
 
 	blockTime := time.Now()
-	unblockTime := blockTime.Add(effectiveTimeout)
+	unblockTime := blockTime.Add(effectiveBantime)
 	if err := fa.db.LogAction(event.IP, "block", "blocked", blockTime); err != nil {
 		log.Printf("Failed to log block action for IP %s: %v", event.IP, err)
 	}
 	log.Printf("Firewall rule %s inserted successfully, will unblock at %s", ruleName, unblockTime)
 
 	go func() {
-		time.Sleep(effectiveTimeout)
+		time.Sleep(effectiveBantime)
 		unblockCtx, unblockCancel := context.WithTimeout(context.Background(), fa.timeout)
 		defer unblockCancel()
 
