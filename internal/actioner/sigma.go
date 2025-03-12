@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/cloudedugcp/responseEngine/internal/config" // Додаємо імпорт
 	"google.golang.org/api/option"
 	"gopkg.in/yaml.v3"
 )
 
-// SigmaActioner - діяч для конвертації логів Falco у формат SigmaHQ і збереження в Google Cloud Storage
 type SigmaActioner struct {
 	bucketName string
 	client     *storage.Client
 }
 
-// NewSigmaActioner - створює новий SigmaActioner
-func NewSigmaActioner(cfg ActionerConfig) (*SigmaActioner, error) {
+func NewSigmaActioner(cfg config.ActionerConfig) (*SigmaActioner, error) { // Оновлено
 	var clientOptions []option.ClientOption
 	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
 		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))

@@ -12,9 +12,3 @@ type Actioner interface {
 	Execute(event Event, params map[string]interface{}) error
 	Name() string
 }
-
-// ActionerConfig - конфігурація діяча
-type ActionerConfig struct {
-	Type   string                 `mapstructure:"type"`
-	Params map[string]interface{} `mapstructure:"params"`
-}

@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/cloudedugcp/responseEngine/internal/config" // Додаємо імпорт
 	"google.golang.org/api/option"
 )
 
-// StorageActioner - діяч для Google Cloud Storage
 type StorageActioner struct {
 	bucketName string
 	logCount   int
 	client     *storage.Client
 }
 
-// NewStorageActioner - створює новий StorageActioner
-func NewStorageActioner(cfg ActionerConfig) (*StorageActioner, error) {
+func NewStorageActioner(cfg config.ActionerConfig) (*StorageActioner, error) { // Оновлено
 	var clientOptions []option.ClientOption
 	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
 		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))

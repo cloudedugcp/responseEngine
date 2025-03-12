@@ -38,7 +38,7 @@ func main() {
 				continue
 			}
 			actioners[name] = st
-		case "sigma_storage": // Новий тип діяча
+		case "sigma_storage":
 			sg, err := actioner.NewSigmaActioner(acfg)
 			if err != nil {
 				log.Printf("Failed to initialize sigma actioner: %v", err)

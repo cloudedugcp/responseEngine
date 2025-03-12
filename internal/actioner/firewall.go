@@ -8,13 +8,13 @@ import (
 	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
+	"github.com/cloudedugcp/responseEngine/internal/config" // Додаємо імпорт
 	"github.com/cloudedugcp/responseEngine/internal/db"
 	"google.golang.org/api/option"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 )
 
-// FirewallActioner - діяч для Google Cloud Firewall
 type FirewallActioner struct {
 	projectID       string
 	timeout         time.Duration
@@ -23,8 +23,7 @@ type FirewallActioner struct {
 	multiplyTimeout bool
 }
 
-// NewFirewallActioner - створює новий FirewallActioner
-func NewFirewallActioner(cfg ActionerConfig, database *db.Database) (*FirewallActioner, error) {
+func NewFirewallActioner(cfg config.ActionerConfig, database *db.Database) (*FirewallActioner, error) { // Оновлено
 	fa := &FirewallActioner{
 		projectID: cfg.Params["project_id"].(string),
 		db:        database,

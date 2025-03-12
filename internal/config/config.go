@@ -1,44 +1,73 @@
 package config
 
 import (
-	"github.com/cloudedugcp/responseEngine/internal/actioner" // Імпорт для ActionerConfig
-	"github.com/cloudedugcp/responseEngine/internal/scenario"
-	"github.com/spf13/viper"
+	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Config - структура конфігурації
 type Config struct {
-	Server    ServerConfig                       `mapstructure:"server"`
-	Scenarios []Scenario                         `mapstructure:"scenarios"`
-	Actioners map[string]actioner.ActionerConfig `mapstructure:"actioners"` // Використовуємо actioner.ActionerConfig
+	Server    ServerConfig              `yaml:"server"`
+	Scenarios []ScenarioConfig          `yaml:"scenarios"`
+	Actioners map[string]ActionerConfig `yaml:"actioners"`
+	Notifiers map[string]NotifierConfig `yaml:"notifiers"` // Новий розділ
 }
 
+// ServerConfig - конфігурація сервера
 type ServerConfig struct {
-	ListenPort string            `mapstructure:"port"`
-	Aliases    map[string]string `mapstructure:"aliases"`
+	ListenPort string            `yaml:"port"`
+	Aliases    map[string]string `yaml:"aliases"`
 }
 
-type Scenario struct {
-	Name       string                       `mapstructure:"name"`
-	FalcoRule  string                       `mapstructure:"falco_rule"`
-	Conditions *scenario.ScenarioConditions `mapstructure:"conditions"`
-	Actioners  []ScenarioActioner           `mapstructure:"actioners"`
+// ScenarioConfig - конфігурація сценарію
+type ScenarioConfig struct {
+	Name       string        `yaml:"name"`
+	FalcoRule  string        `yaml:"falco_rule"`
+	Conditions *Conditions   `yaml:"conditions"`
+	Actioners  []ActionerRef `yaml:"actioners"`
+	Notify     NotifyConfig  `yaml:"notify"` // Новий параметр
 }
 
-type ScenarioActioner struct {
-	Name   string                 `mapstructure:"name"`
-	Params map[string]interface{} `mapstructure:"params"`
+// ActionerRef - посилання на діяч у сценарії
+type ActionerRef struct {
+	Name   string                 `yaml:"name"`
+	Params map[string]interface{} `yaml:"params"`
+}
+
+// ActionerConfig - конфігурація діяча
+type ActionerConfig struct {
+	Type   string                 `yaml:"type"`
+	Params map[string]interface{} `yaml:"params"`
+}
+
+// NotifyConfig - конфігурація нотифікатора для сценарію
+type NotifyConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Type    string `yaml:"type"`
+}
+
+// NotifierConfig - конфігурація нотифікатора
+type NotifierConfig struct {
+	WebhookURL   string `yaml:"webhook_url"`
+	CallbackPath string `yaml:"callback_path"`
+}
+
+// Conditions - умови спрацьовування сценарію
+type Conditions struct {
+	TriggerCount int    `yaml:"trigger_count"`
+	TimeWindow   string `yaml:"time_window"`
 }
 
 // LoadConfig - завантажує конфігурацію з файлу
 func LoadConfig(path string) (*Config, error) {
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil, err
 	}
 
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil

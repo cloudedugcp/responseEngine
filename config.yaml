@@ -19,9 +19,12 @@ scenarios:
       - name: "storage"
         params:
           prefix: "blocked_ips/"
-      - name: "sigma"  # Новий діяч
+      - name: "sigma"
         params:
           prefix: "sigma_rules/"
+    notify:
+      enabled: true
+      type: "slack"
 
 actioners:
   firewall:
@@ -38,7 +41,12 @@ actioners:
       log_count: 100
       credentials_file: "/path/to/storage-service-account.json"
   sigma:
-    type: "sigma_storage"  # Новий тип діяча
+    type: "sigma_storage"
     params:
-      bucket_name: "my-logs-bucket"  # Може бути окремий бакет
+      bucket_name: "my-logs-bucket"
       credentials_file: "/path/to/sigma-service-account.json"
+
+notifiers:
+  slack:
+    webhook_url: "https://hooks.slack.com/services/TXXXXX/BXXXXX/XXXXX" 
+    callback_path: "/slack/callback" 
