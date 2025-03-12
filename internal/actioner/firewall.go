@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
@@ -64,7 +65,9 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 	if err != nil {
 		log.Printf("Failed to get block count for IP %s: %v", event.IP, err)
 	}
-	ruleName := fmt.Sprintf("block-ip-%s-%d", event.IP, blockCount+1)
+	// Замінюємо крапки на дефіси в IP-адресі
+	safeIP := strings.ReplaceAll(event.IP, ".", "-")
+	ruleName := fmt.Sprintf("block-ip-%s-%d", safeIP, blockCount+1)
 
 	firewall := &computepb.Firewall{
 		Name:        &ruleName,
