@@ -58,9 +58,11 @@ func main() {
 				log.Fatalf("firewall: invalid timeout value %s: %v", t, err)
 			}
 		case float64:
-			firewallTimeout = time.Duration(t) * time.Second // Якщо число, вважаємо секунди
+			firewallTimeout = time.Duration(t) * time.Second // Число як секунди
+		case int:
+			firewallTimeout = time.Duration(t) * time.Second // Додано підтримку int
 		default:
-			log.Fatalf("firewall: timeout must be a string or number, got %T", timeout)
+			log.Fatalf("firewall: timeout must be a string, number, or integer, got %T", timeout)
 		}
 
 		firewallActioner, err := actioner.NewFirewallActioner(firewallProjectID, firewallCredsFile, firewallTimeout, database)
@@ -71,13 +73,11 @@ func main() {
 	}
 
 	// Додайте ініціалізацію інших actioners за потреби (наприклад, storage, sigma)
-	// Приклад для storage
 	if storageCfg, ok := cfg.Actioners["storage"]; ok && storageCfg.Type == "gcp_storage" {
 		// Ініціалізація storage (додайте свою логіку)
 		log.Println("Storage actioner initialized (placeholder)")
 	}
 
-	// Приклад для sigma
 	if sigmaCfg, ok := cfg.Actioners["sigma"]; ok && sigmaCfg.Type == "sigma_storage" {
 		// Ініціалізація sigma (додайте свою логіку)
 		log.Println("Sigma actioner initialized (placeholder)")
