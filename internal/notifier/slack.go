@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -130,17 +129,6 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Логуємо заголовки та сире тіло для дебагу
-	log.Printf("Request headers: %v", r.Header)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-	log.Printf("Raw request body: %s", string(body))
-
 	// Парсимо form-даних
 	if err := r.ParseForm(); err != nil {
 		log.Printf("Failed to parse form: %v", err)
@@ -148,6 +136,7 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Отримуємо payload із форми
 	payload := r.FormValue("payload")
 	log.Printf("Received payload: %s", payload)
 	if payload == "" {
@@ -156,6 +145,7 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Розпарсуємо JSON із payload
 	var slackResp struct {
 		Actions []struct {
 			ActionID string `json:"action_id"`
@@ -178,6 +168,7 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 	actionValue := slackResp.Actions[0].Value
 	log.Printf("Action ID: %s, Value: %s", actionID, actionValue)
 
+	// Отримуємо базовий actionID (без суфікса)
 	sn.mu.Lock()
 	actionIDPrefix := actionID
 	for i := len(actionID) - 1; i >= 0; i-- {
@@ -196,6 +187,7 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Виконуємо діячі
 	if actionValue == "all" {
 		for _, act := range pending.Actioners {
 			if err := act.Execute(pending.Event, map[string]interface{}{}); err != nil {
