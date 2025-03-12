@@ -11,117 +11,109 @@ import (
 	"sync"
 
 	"github.com/cloudedugcp/responseEngine/internal/actioner"
+	"github.com/slack-go/slack"
 )
 
-// Notifier - інтерфейс для нотифікаторів
-type Notifier interface {
-	Notify(event actioner.Event, scenario string, actioners []actioner.Actioner) (string, error)
-	HandleCallback(w http.ResponseWriter, r *http.Request, actioners map[string]actioner.Actioner)
-}
-
-// SlackNotifier - реалізація нотифікатора для Slack
+// SlackNotifier відповідає за відправку повідомлень у Slack та обробку callback-запитів
 type SlackNotifier struct {
 	webhookURL   string
-	CallbackPath string // Змінено на велику літеру
-	pending      map[string]PendingAction
+	CallbackPath string
 	mu           sync.Mutex
+	pending      map[string]PendingAction
 }
 
-// PendingAction - структура для збереження очікуваних дій
+// PendingAction зберігає інформацію про очікувані дії
 type PendingAction struct {
 	Event     actioner.Event
 	Scenario  string
-	Actioners []actioner.Actioner
+	Actioners []struct {
+		Actioner actioner.Actioner
+		Params   map[string]interface{}
+	}
 }
 
-// NewSlackNotifier - створює новий SlackNotifier
+// NewSlackNotifier створює новий SlackNotifier
 func NewSlackNotifier(webhookURL, callbackPath string) *SlackNotifier {
 	return &SlackNotifier{
 		webhookURL:   webhookURL,
-		CallbackPath: callbackPath, // Оновлено
+		CallbackPath: callbackPath,
 		pending:      make(map[string]PendingAction),
 	}
 }
 
-// Notify - відправляє повідомлення в Slack із кнопками
+// Notify відправляє повідомлення в Slack із кнопками для виконання діячів
 func (sn *SlackNotifier) Notify(event actioner.Event, scenario string, actioners []actioner.Actioner) (string, error) {
-	// Генеруємо унікальний ID для дії
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to generate action ID: %v", err)
 	}
 	actionID := hex.EncodeToString(idBytes)
 
-	// Формуємо Slack-повідомлення з кнопками
-	blocks := []interface{}{
-		map[string]interface{}{
-			"type": "section",
-			"text": map[string]string{
-				"type": "mrkdwn",
-				"text": fmt.Sprintf("*Suspicious Activity Detected*\nIP: %s\nRule: %s\nLog: %s\nScenario: %s", event.IP, event.RuleName, event.Log, scenario),
-			},
-		},
-		map[string]interface{}{
-			"type":     "actions",
-			"elements": []interface{}{},
-		},
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(
+				"*Suspicious Activity Detected*\nIP: %s\nRule: %s\nLog: %s\nScenario: %s",
+				event.IP, event.RuleName, event.Log, scenario), false, false),
+			nil, nil,
+		),
 	}
 
-	actionElements := blocks[1].(map[string]interface{})["elements"].([]interface{})
+	var elements []slack.BlockElement
 	for _, act := range actioners {
-		actionElements = append(actionElements, map[string]interface{}{
-			"type": "button",
-			"text": map[string]interface{}{
-				"type": "plain_text",
-				"text": fmt.Sprintf("Run %s", act.Name()),
-			},
-			"action_id": fmt.Sprintf("%s_%s", actionID, act.Name()),
-			"value":     act.Name(),
-		})
+		elements = append(elements, slack.NewButtonBlockElement(
+			actionID+"_"+act.Name(),
+			act.Name(),
+			slack.NewTextBlockObject("plain_text", "Run "+act.Name(), true, false),
+		))
 	}
-	// Додаємо кнопку "Run All"
-	actionElements = append(actionElements, map[string]interface{}{
-		"type": "button",
-		"text": map[string]interface{}{
-			"type": "plain_text",
-			"text": "Run All",
-		},
-		"action_id": fmt.Sprintf("%s_all", actionID),
-		"value":     "all",
-	})
-	blocks[1].(map[string]interface{})["elements"] = actionElements
+	elements = append(elements, slack.NewButtonBlockElement(
+		actionID+"_all",
+		"all",
+		slack.NewTextBlockObject("plain_text", "Run All", true, false),
+	))
+	blocks = append(blocks, slack.NewActionBlock(actionID, elements...))
 
-	payload := map[string]interface{}{
-		"blocks": blocks,
+	payload := slack.WebhookMessage{
+		Blocks: &slack.Blocks{BlockSet: blocks},
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal Slack payload: %v", err)
 	}
 
-	// Відправляємо в Slack
 	resp, err := http.Post(sn.webhookURL, "application/json", bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to send Slack notification: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Slack returned non-OK status: %d", resp.StatusCode)
+		return "", fmt.Errorf("Slack returned non-OK status: %s", resp.Status)
 	}
 
-	// Зберігаємо очікувану дію
+	pendingActioners := make([]struct {
+		Actioner actioner.Actioner
+		Params   map[string]interface{}
+	}, len(actioners)) // Виправлено синтаксис
+	for i, act := range actioners {
+		pendingActioners[i] = struct {
+			Actioner actioner.Actioner
+			Params   map[string]interface{}
+		}{Actioner: act, Params: map[string]interface{}{}}
+	}
+
 	sn.mu.Lock()
 	sn.pending[actionID] = PendingAction{
 		Event:     event,
 		Scenario:  scenario,
-		Actioners: actioners,
+		Actioners: pendingActioners,
 	}
+	log.Printf("Stored %d actioners for action ID: %s", len(pendingActioners), actionID)
 	sn.mu.Unlock()
 
 	return actionID, nil
 }
 
-// HandleCallback - обробляє відповіді від Slack
+// HandleCallback обробляє callback-запити від Slack
 func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, actioners map[string]actioner.Actioner) {
 	if r.Method != http.MethodPost {
 		log.Printf("Invalid method: %s", r.Method)
@@ -129,14 +121,12 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Парсимо form-даних
 	if err := r.ParseForm(); err != nil {
 		log.Printf("Failed to parse form: %v", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
-	// Отримуємо payload із форми
 	payload := r.FormValue("payload")
 	log.Printf("Received payload: %s", payload)
 	if payload == "" {
@@ -145,7 +135,6 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Розпарсуємо JSON із payload
 	var slackResp struct {
 		Actions []struct {
 			ActionID string `json:"action_id"`
@@ -168,7 +157,6 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 	actionValue := slackResp.Actions[0].Value
 	log.Printf("Action ID: %s, Value: %s", actionID, actionValue)
 
-	// Отримуємо базовий actionID (без суфікса)
 	sn.mu.Lock()
 	actionIDPrefix := actionID
 	for i := len(actionID) - 1; i >= 0; i-- {
@@ -178,7 +166,6 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	pending, exists := sn.pending[actionIDPrefix]
-	delete(sn.pending, actionIDPrefix)
 	sn.mu.Unlock()
 
 	if !exists {
@@ -187,22 +174,21 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Виконуємо діячі
 	if actionValue == "all" {
 		for _, act := range pending.Actioners {
-			if err := act.Execute(pending.Event, map[string]interface{}{}); err != nil {
-				log.Printf("Failed to execute actioner %s: %v", act.Name(), err)
+			if err := act.Actioner.Execute(pending.Event, act.Params); err != nil {
+				log.Printf("Failed to execute actioner %s: %v", act.Actioner.Name(), err)
 			} else {
-				log.Printf("Actioner '%s' executed successfully via Slack for IP=%s", act.Name(), pending.Event.IP)
+				log.Printf("Actioner '%s' executed successfully via Slack for IP=%s", act.Actioner.Name(), pending.Event.IP)
 			}
 		}
 	} else {
 		for _, act := range pending.Actioners {
-			if act.Name() == actionValue {
-				if err := act.Execute(pending.Event, map[string]interface{}{}); err != nil {
-					log.Printf("Failed to execute actioner %s: %v", act.Name(), err)
+			if act.Actioner.Name() == actionValue {
+				if err := act.Actioner.Execute(pending.Event, act.Params); err != nil {
+					log.Printf("Failed to execute actioner %s: %v", act.Actioner.Name(), err)
 				} else {
-					log.Printf("Actioner '%s' executed successfully via Slack for IP=%s", act.Name(), pending.Event.IP)
+					log.Printf("Actioner '%s' executed successfully via Slack for IP=%s", act.Actioner.Name(), pending.Event.IP)
 				}
 				break
 			}
@@ -210,4 +196,22 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// UpdatePending оновлює параметри діячів для заданого actionID
+func (sn *SlackNotifier) UpdatePending(actionID string, actioners []struct {
+	Actioner actioner.Actioner
+	Params   map[string]interface{}
+}) {
+	sn.mu.Lock()
+	defer sn.mu.Unlock()
+
+	if pending, exists := sn.pending[actionID]; exists {
+		for i, act := range actioners {
+			if i < len(pending.Actioners) {
+				pending.Actioners[i].Params = act.Params
+			}
+		}
+		sn.pending[actionID] = pending
+	}
 }

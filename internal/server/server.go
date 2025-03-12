@@ -10,11 +10,10 @@ import (
 	"github.com/cloudedugcp/responseEngine/internal/config"
 	"github.com/cloudedugcp/responseEngine/internal/db"
 	"github.com/cloudedugcp/responseEngine/internal/notifier"
-	"github.com/cloudedugcp/responseEngine/internal/scenario"
 	"github.com/cloudedugcp/responseEngine/internal/web"
 )
 
-// Server - структура сервера
+// Server представляє сервер для обробки подій Falco
 type Server struct {
 	cfg       *config.Config
 	db        *db.Database
@@ -22,16 +21,12 @@ type Server struct {
 	notifiers map[string]notifier.Notifier
 }
 
-// NewServer - створює новий сервер
+// NewServer створює новий сервер
 func NewServer(cfg *config.Config, database *db.Database, actioners map[string]actioner.Actioner) *Server {
 	notifiers := make(map[string]notifier.Notifier)
-	for name, ncfg := range cfg.Notifiers {
-		switch name {
-		case "slack":
-			notifiers[name] = notifier.NewSlackNotifier(ncfg.WebhookURL, ncfg.CallbackPath)
-		}
+	if slackCfg, ok := cfg.Notifiers["slack"]; ok && slackCfg.WebhookURL != "" {
+		notifiers["slack"] = notifier.NewSlackNotifier(slackCfg.WebhookURL, slackCfg.CallbackPath)
 	}
-
 	return &Server{
 		cfg:       cfg,
 		db:        database,
@@ -40,7 +35,7 @@ func NewServer(cfg *config.Config, database *db.Database, actioners map[string]a
 	}
 }
 
-// Start - запускає сервер
+// Start запускає сервер
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
@@ -48,7 +43,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/dashboard", web.DashboardHandler(s.db))
 	for _, n := range s.notifiers {
 		if slackNotifier, ok := n.(*notifier.SlackNotifier); ok {
-			mux.HandleFunc(slackNotifier.CallbackPath, func(w http.ResponseWriter, r *http.Request) { // Оновлено
+			mux.HandleFunc(slackNotifier.CallbackPath, func(w http.ResponseWriter, r *http.Request) {
 				slackNotifier.HandleCallback(w, r, s.actioners)
 			})
 		}
@@ -62,25 +57,22 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.cfg.Server.ListenPort, mux)
 }
 
-// eventHandler - обробляє вхідні події
 func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	if _, ok := s.cfg.Server.Aliases[path]; !ok {
-		http.Error(w, "Invalid endpoint", http.StatusNotFound)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var event actioner.Event
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		log.Printf("Failed to decode event: %v", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-
-	if event.Log != "" {
-		log.Printf("Received event: IP=%s, Rule=%s, Log=%s, Time=%s", event.IP, event.RuleName, event.Log, time.Now().Format(time.RFC3339))
-	} else {
-		log.Printf("Received event: IP=%s, Rule=%s, Time=%s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
 	}
+	log.Printf("Received event: IP=%s, Rule=%s, Log=%s, Timestamp=%s", event.IP, event.RuleName, event.Log, event.Timestamp.Format(time.RFC3339))
 
 	if event.IP == "" {
 		log.Printf("Warning: Event with empty IP received (Rule=%s)", event.RuleName)
@@ -88,67 +80,78 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.db.LogAction(event.IP, event.RuleName, "received", time.Now()); err != nil {
-		log.Printf("Failed to log event to database: %v", err)
+	if err := s.db.LogEvent(event.IP, event.RuleName, event.Log, event.Timestamp); err != nil {
+		log.Printf("Failed to log event in database: %v", err)
 	}
 
 	for _, sc := range s.cfg.Scenarios {
-		if sc.FalcoRule == event.RuleName {
-			shouldExecute := true
-			if sc.Conditions != nil {
-				window, err := time.ParseDuration(sc.Conditions.TimeWindow)
-				if err != nil {
-					log.Printf("Invalid time_window for scenario %s: %v", sc.Name, err)
-					continue
-				}
-				conditions := scenario.ScenarioConditions{
-					TriggerCount: sc.Conditions.TriggerCount,
-					TimeWindow:   window,
-				}
-				shouldExecute = scenario.ShouldTrigger(conditions, event, s.db) // Передаємо сконвертований тип
-				if shouldExecute {
-					log.Printf("Scenario '%s' triggered for IP=%s (conditions met)", sc.Name, event.IP)
-				} else {
-					log.Printf("Scenario '%s' conditions not met for IP=%s", sc.Name, event.IP)
-					w.WriteHeader(http.StatusOK)
-					continue
+		if sc.FalcoRule != event.RuleName {
+			continue
+		}
+
+		timeWindow, err := time.ParseDuration(sc.Conditions.TimeWindow)
+		if err != nil {
+			log.Printf("Invalid time window for scenario %s: %v", sc.Name, err)
+			continue
+		}
+		count, err := s.db.CountEvents(event.IP, timeWindow)
+		if err != nil {
+			log.Printf("Failed to count events for IP %s: %v", event.IP, err)
+			continue
+		}
+		log.Printf("IP %s: %d events in last %s (required: %d)", event.IP, count, sc.Conditions.TimeWindow, sc.Conditions.TriggerCount)
+
+		shouldExecute := count >= sc.Conditions.TriggerCount
+		if shouldExecute {
+			log.Printf("Notify enabled for scenario '%s': %v", sc.Name, sc.Notify.Enabled)
+			actioners := make([]actioner.Actioner, 0, len(sc.Actioners))
+			for _, sa := range sc.Actioners {
+				if act, ok := s.actioners[sa.Name]; ok {
+					actioners = append(actioners, act)
 				}
 			}
 
-			if shouldExecute {
-				actioners := make([]actioner.Actioner, 0, len(sc.Actioners))
-				for _, sa := range sc.Actioners {
-					if act, ok := s.actioners[sa.Name]; ok {
-						actioners = append(actioners, act)
-					}
-				}
-
-				if sc.Notify.Enabled {
-					if notifier, ok := s.notifiers[sc.Notify.Type]; ok {
-						actionID, err := notifier.Notify(event, sc.Name, actioners)
-						if err != nil {
-							log.Printf("Failed to send notification for scenario %s: %v", sc.Name, err)
-						} else {
-							log.Printf("Notification sent for scenario %s, action ID: %s", sc.Name, actionID)
+			if sc.Notify.Enabled {
+				if n, ok := s.notifiers[sc.Notify.Type]; ok {
+					actionID, err := n.Notify(event, sc.Name, actioners)
+					if err != nil {
+						log.Printf("Failed to send notification for scenario %s: %v", sc.Name, err)
+					} else {
+						log.Printf("Notification sent for scenario %s, action ID: %s", sc.Name, actionID)
+						if slackNotifier, ok := n.(*notifier.SlackNotifier); ok {
+							// Оновлюємо pending через метод UpdatePending
+							updatedActioners := make([]struct {
+								Actioner actioner.Actioner
+								Params   map[string]interface{}
+							}, len(actioners))
+							for i, sa := range sc.Actioners {
+								if i < len(actioners) {
+									updatedActioners[i] = struct {
+										Actioner actioner.Actioner
+										Params   map[string]interface{}
+									}{Actioner: actioners[i], Params: sa.Params}
+								}
+							}
+							slackNotifier.UpdatePending(actionID, updatedActioners)
 						}
 					}
-				} else {
-					for _, sa := range sc.Actioners {
-						if actioner, ok := s.actioners[sa.Name]; ok {
-							err := actioner.Execute(event, sa.Params)
-							if err != nil {
-								log.Printf("Error executing actioner %s: %v", sa.Name, err)
-							} else {
-								log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
-								actionType := "store"
-								status := "stored"
-								if sa.Name == "firewall" {
-									actionType = "block"
-									status = "blocked"
-								}
-								if err := s.db.LogAction(event.IP, actionType, status, time.Now()); err != nil {
-									log.Printf("Failed to log action %s to database: %v", actionType, err)
-								}
+				}
+			} else {
+				for _, sa := range sc.Actioners {
+					if actioner, ok := s.actioners[sa.Name]; ok {
+						err := actioner.Execute(event, sa.Params)
+						if err != nil {
+							log.Printf("Error executing actioner %s: %v", sa.Name, err)
+						} else {
+							log.Printf("Actioner '%s' executed successfully for IP=%s", sa.Name, event.IP)
+							actionType := "store"
+							status := "stored"
+							if sa.Name == "firewall" {
+								actionType = "block"
+								status = "blocked"
+							}
+							if err := s.db.LogAction(event.IP, actionType, status, time.Now()); err != nil {
+								log.Printf("Failed to log action %s to database: %v", actionType, err)
 							}
 						}
 					}
@@ -156,5 +159,6 @@ func (s *Server) eventHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	w.WriteHeader(http.StatusOK)
 }
