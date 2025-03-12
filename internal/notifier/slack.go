@@ -124,6 +124,7 @@ func (sn *SlackNotifier) Notify(event actioner.Event, scenario string, actioners
 // HandleCallback - обробляє відповіді від Slack
 func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, actioners map[string]actioner.Actioner) {
 	if r.Method != http.MethodPost {
+		log.Printf("Invalid method: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -132,13 +133,11 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		Payload string `form:"payload"`
 	}
 	if err := r.ParseForm(); err != nil {
+		log.Printf("Failed to parse form: %v", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
-	if err := json.Unmarshal([]byte(payload.Payload), &payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
+	log.Printf("Received payload: %s", payload.Payload)
 
 	var slackResp struct {
 		Actions []struct {
@@ -147,29 +146,33 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		} `json:"actions"`
 	}
 	if err := json.Unmarshal([]byte(payload.Payload), &slackResp); err != nil {
+		log.Printf("Failed to unmarshal payload: %v", err)
 		http.Error(w, "Invalid Slack payload", http.StatusBadRequest)
 		return
 	}
 
 	if len(slackResp.Actions) == 0 {
+		log.Printf("No actions in payload")
 		http.Error(w, "No action provided", http.StatusBadRequest)
 		return
 	}
 
 	actionID := slackResp.Actions[0].ActionID
 	actionValue := slackResp.Actions[0].Value
+	log.Printf("Action ID: %s, Value: %s", actionID, actionValue)
 
 	sn.mu.Lock()
-	pending, exists := sn.pending[actionID[:32]] // ID без суфікса (_firewall, _all тощо)
+	pending, exists := sn.pending[actionID[:32]]
 	delete(sn.pending, actionID[:32])
 	sn.mu.Unlock()
 
 	if !exists {
+		log.Printf("Unknown action ID: %s", actionID)
 		http.Error(w, "Unknown action ID", http.StatusBadRequest)
 		return
 	}
 
-	// Виконуємо діячі залежно від вибору
+	// Виконуємо діячі
 	if actionValue == "all" {
 		for _, act := range pending.Actioners {
 			if err := act.Execute(pending.Event, map[string]interface{}{}); err != nil {
