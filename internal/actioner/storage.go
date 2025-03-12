@@ -4,79 +4,60 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/cloudedugcp/responseEngine/internal/config" // Додаємо імпорт
-	"google.golang.org/api/option"
+	"github.com/cloudedugcp/responseEngine/internal/config"
+	"github.com/cloudedugcp/responseEngine/internal/db"
+	"github.com/cloudedugcp/responseEngine/internal/types"
 )
 
+// StorageActioner реалізує збереження даних у Google Cloud Storage
 type StorageActioner struct {
-	bucketName string
-	logCount   int
-	client     *storage.Client
+	client *storage.Client
+	bucket string
+	db     *db.Database
 }
 
-func NewStorageActioner(cfg config.ActionerConfig) (*StorageActioner, error) { // Оновлено
-	var clientOptions []option.ClientOption
-	if credsFile, ok := cfg.Params["credentials_file"].(string); ok && credsFile != "" {
-		clientOptions = append(clientOptions, option.WithCredentialsFile(credsFile))
+// NewStorageActioner створює новий StorageActioner із конфігурацією
+func NewStorageActioner(cfg config.ActionerConfig, db *db.Database) (*StorageActioner, error) {
+	bucket, ok := cfg.Params["bucket"].(string)
+	if !ok {
+		return nil, fmt.Errorf("bucket must be specified in params for storage actioner")
 	}
 
-	client, err := storage.NewClient(context.Background(), clientOptions...)
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage client: %v", err)
 	}
-
-	var logCount int
-	switch v := cfg.Params["log_count"].(type) {
-	case int:
-		logCount = v
-	case float64:
-		logCount = int(v)
-	default:
-		return nil, fmt.Errorf("log_count must be a number, got %T", v)
-	}
-
 	return &StorageActioner{
-		bucketName: cfg.Params["bucket_name"].(string),
-		logCount:   logCount,
-		client:     client,
+		client: client,
+		bucket: bucket,
+		db:     db,
 	}, nil
 }
 
-// Execute - зберігає лог у Google Cloud Storage
-func (sa *StorageActioner) Execute(event Event, params map[string]interface{}) error {
-	prefix := params["prefix"].(string)
+// Execute зберігає подію в Storage
+func (sa *StorageActioner) Execute(event types.Event, params map[string]interface{}) error {
 	ctx := context.Background()
-	bucket := sa.client.Bucket(sa.bucketName)
-	objectName := fmt.Sprintf("%s%s_%d", prefix, event.IP, time.Now().UnixNano())
-
-	logData := event.Log
-	if logData == "" {
-		logData = fmt.Sprintf("IP: %s, Rule: %s, Time: %s", event.IP, event.RuleName, time.Now().Format(time.RFC3339))
-		log.Printf("Warning: No log provided for event IP=%s, Rule=%s, using default data", event.IP, event.RuleName)
+	objectName, ok := params["object_name"].(string)
+	if !ok {
+		return fmt.Errorf("object_name must be a string")
 	}
 
-	w := bucket.Object(objectName).NewWriter(ctx)
+	w := sa.client.Bucket(sa.bucket).Object(objectName).NewWriter(ctx)
+	defer w.Close()
+
+	logData := fmt.Sprintf("IP: %s, Rule: %s, Log: %s, Timestamp: %s", event.IP, event.RuleName, event.Log, event.Timestamp)
 	if _, err := w.Write([]byte(logData)); err != nil {
-		log.Printf("Failed to write data to storage object %s: %v", objectName, err)
-		return fmt.Errorf("failed to write data to storage: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		log.Printf("Failed to close writer for storage object %s: %v", objectName, err)
-		return fmt.Errorf("failed to close storage writer: %v", err)
+		return fmt.Errorf("failed to write to storage: %v", err)
 	}
 
-	attrs, err := bucket.Object(objectName).Attrs(ctx)
-	if err != nil {
-		log.Printf("Failed to verify storage object %s: %v", objectName, err)
-		return fmt.Errorf("failed to verify storage object: %v", err)
-	}
-	log.Printf("Successfully wrote %d bytes to storage object %s", attrs.Size, objectName)
-
+	log.Printf("Stored event in bucket %s, object %s", sa.bucket, objectName)
 	return nil
 }
 
-// Name - повертає ім'я діяча
-func (sa *StorageActioner) Name() string { return "storage" }
+// Name повертає ім’я діяча
+func (sa *StorageActioner) Name() string {
+	return "storage"
+}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 
+	"github.com/cloudedugcp/responseEngine/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,7 +36,7 @@ type ScenarioConfig struct {
 // ActionerConfig представляє конфігурацію діяча
 type ActionerConfig struct {
 	Name   string                 `yaml:"name"`
-	Type   string                 `yaml:"type,omitempty"` // Для глобальних діячів
+	Type   string                 `yaml:"type,omitempty"`
 	Params map[string]interface{} `yaml:"params"`
 }
 
@@ -63,4 +64,26 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// GetActioners повертає список діячів для сценарію
+func (sc *ScenarioConfig) GetActioners() []types.Actioner {
+	var acts []types.Actioner
+	for _, act := range sc.Actioners {
+		acts = append(acts, &dummyActioner{name: act.Name})
+	}
+	return acts
+}
+
+// dummyActioner використовується як заглушка для передачі імені діяча
+type dummyActioner struct {
+	name string
+}
+
+func (d *dummyActioner) Execute(event types.Event, params map[string]interface{}) error {
+	return nil
+}
+
+func (d *dummyActioner) Name() string {
+	return d.name
 }

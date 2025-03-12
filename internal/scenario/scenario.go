@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/cloudedugcp/responseEngine/internal/actioner"
 	"github.com/cloudedugcp/responseEngine/internal/db"
+	"github.com/cloudedugcp/responseEngine/internal/types"
 )
 
 // ScenarioConditions - умови спрацювання
@@ -15,7 +15,7 @@ type ScenarioConditions struct {
 }
 
 // ShouldTrigger - перевіряє, чи потрібно спрацьовувати діячу
-func ShouldTrigger(conditions ScenarioConditions, event actioner.Event, db *db.Database) bool {
+func ShouldTrigger(conditions ScenarioConditions, event types.Event, db *db.Database) bool {
 	if conditions.TimeWindow == 0 {
 		log.Printf("Warning: TimeWindow is 0, conditions will always fail")
 	}

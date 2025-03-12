@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -48,6 +49,11 @@ func (d *Database) Close() error {
 // LogEvent логує подію
 func (d *Database) LogEvent(ip, ruleName, logText string, timestamp time.Time) error {
 	_, err := d.db.Exec("INSERT INTO events (ip, rule_name, log, timestamp) VALUES (?, ?, ?, ?)", ip, ruleName, logText, timestamp)
+	if err != nil {
+		log.Printf("Error inserting event: ip=%s, rule=%s, log=%s, timestamp=%s, err=%v", ip, ruleName, logText, timestamp, err)
+	} else {
+		log.Printf("Event logged: ip=%s, rule=%s, log=%s, timestamp=%s", ip, ruleName, logText, timestamp)
+	}
 	return err
 }
 
@@ -56,7 +62,12 @@ func (d *Database) CountEvents(ip string, window time.Duration) (int, error) {
 	cutoff := time.Now().Add(-window)
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM events WHERE ip = ? AND timestamp >= ?", ip, cutoff).Scan(&count)
-	return count, err
+	if err != nil {
+		log.Printf("Error counting events: ip=%s, cutoff=%s, err=%v", ip, cutoff, err)
+		return 0, err
+	}
+	log.Printf("Counted %d events for ip=%s since %s", count, ip, cutoff)
+	return count, nil
 }
 
 // LogAction логує дію (block/unblock)

@@ -1,6 +1,6 @@
 package actioner
 
-import "time"
+/* import "time"
 
 // Event - подія від Falco
 type Event struct {
@@ -14,4 +14,4 @@ type Event struct {
 type Actioner interface {
 	Execute(event Event, params map[string]interface{}) error
 	Name() string
-}
+} */

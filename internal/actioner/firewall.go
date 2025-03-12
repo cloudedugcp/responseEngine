@@ -10,6 +10,7 @@ import (
 	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"github.com/cloudedugcp/responseEngine/internal/db"
+	"github.com/cloudedugcp/responseEngine/internal/types"
 	"google.golang.org/api/option"
 )
 
@@ -43,7 +44,7 @@ func NewFirewallActioner(projectID, credentialsFile string, timeout time.Duratio
 }
 
 // Execute блокує IP через фаєрвол
-func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) error {
+func (fa *FirewallActioner) Execute(event types.Event, params map[string]interface{}) error {
 	var priority int32
 	switch p := params["priority"].(type) {
 	case float64:
@@ -75,7 +76,6 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		return fmt.Errorf("invalid timeout value %s: %v", timeoutStr, err)
 	}
 
-	// Множимо час блокування на Block Count, якщо він > 0
 	effectiveTimeout := timeoutDuration
 	if blockCount > 0 {
 		effectiveTimeout = timeoutDuration * time.Duration(blockCount+1)
@@ -115,7 +115,6 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 		return fmt.Errorf("failed to wait for firewall operation: %v", err)
 	}
 
-	// Логуємо блокування в базу даних
 	blockTime := time.Now()
 	unblockTime := blockTime.Add(effectiveTimeout)
 	if err := fa.db.LogAction(event.IP, "block", "blocked", blockTime); err != nil {
@@ -123,7 +122,6 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 	}
 	log.Printf("Firewall rule %s inserted successfully, will unblock at %s", ruleName, unblockTime)
 
-	// Запускаємо горутину для розблокування
 	go func() {
 		time.Sleep(effectiveTimeout)
 		unblockCtx, unblockCancel := context.WithTimeout(context.Background(), fa.timeout)
@@ -143,7 +141,6 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 			return
 		}
 
-		// Оновлюємо статус і скидаємо Attempt Count
 		if err := fa.db.LogAction(event.IP, "unblock", "unblocked", time.Now()); err != nil {
 			log.Printf("Failed to log unblock action for IP %s: %v", event.IP, err)
 		}
