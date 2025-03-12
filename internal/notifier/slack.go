@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -129,15 +130,31 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	var payload struct {
-		Payload string `form:"payload"`
+	// Логуємо заголовки та сире тіло для дебагу
+	log.Printf("Request headers: %v", r.Header)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Failed to read request body: %v", err)
+		http.Error(w, "Failed to read request", http.StatusBadRequest)
+		return
 	}
+	defer r.Body.Close()
+	log.Printf("Raw request body: %s", string(body))
+
+	// Парсимо form-даних
 	if err := r.ParseForm(); err != nil {
 		log.Printf("Failed to parse form: %v", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
-	log.Printf("Received payload: %s", payload.Payload)
+
+	payload := r.FormValue("payload")
+	log.Printf("Received payload: %s", payload)
+	if payload == "" {
+		log.Printf("Empty payload received")
+		http.Error(w, "Empty payload", http.StatusBadRequest)
+		return
+	}
 
 	var slackResp struct {
 		Actions []struct {
@@ -145,7 +162,7 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 			Value    string `json:"value"`
 		} `json:"actions"`
 	}
-	if err := json.Unmarshal([]byte(payload.Payload), &slackResp); err != nil {
+	if err := json.Unmarshal([]byte(payload), &slackResp); err != nil {
 		log.Printf("Failed to unmarshal payload: %v", err)
 		http.Error(w, "Invalid Slack payload", http.StatusBadRequest)
 		return
@@ -162,8 +179,15 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 	log.Printf("Action ID: %s, Value: %s", actionID, actionValue)
 
 	sn.mu.Lock()
-	pending, exists := sn.pending[actionID[:32]]
-	delete(sn.pending, actionID[:32])
+	actionIDPrefix := actionID
+	for i := len(actionID) - 1; i >= 0; i-- {
+		if actionID[i] == '_' {
+			actionIDPrefix = actionID[:i]
+			break
+		}
+	}
+	pending, exists := sn.pending[actionIDPrefix]
+	delete(sn.pending, actionIDPrefix)
 	sn.mu.Unlock()
 
 	if !exists {
@@ -172,7 +196,6 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Виконуємо діячі
 	if actionValue == "all" {
 		for _, act := range pending.Actioners {
 			if err := act.Execute(pending.Event, map[string]interface{}{}); err != nil {
