@@ -38,10 +38,18 @@ func NewFirewallActioner(projectID, credentialsFile string, timeout time.Duratio
 
 // Execute блокує IP через фаєрвол
 func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) error {
-	priority, ok := params["priority"].(float64) // YAML парсить числа як float64
-	if !ok {
-		return fmt.Errorf("priority must be a number, got %v", params["priority"])
+	var priority int32
+	switch p := params["priority"].(type) {
+	case float64:
+		priority = int32(p)
+	case int:
+		priority = int32(p)
+	case nil:
+		return fmt.Errorf("priority is missing in params")
+	default:
+		return fmt.Errorf("priority must be a number, got %T with value %v", p, p)
 	}
+
 	description, _ := params["description"].(string)
 	if description != "" {
 		fa.description = description
@@ -56,9 +64,9 @@ func (fa *FirewallActioner) Execute(event Event, params map[string]interface{}) 
 	firewall := &computepb.Firewall{
 		Name:        &ruleName,
 		Description: &fa.description,
-		Priority:    protoInt32(int32(priority)),
+		Priority:    protoInt32(priority),
 		Direction:   protoString("INGRESS"),
-		Denied: []*computepb.Denied{ // Змінено з Allowed на Denied
+		Denied: []*computepb.Denied{
 			{
 				IPProtocol: protoString("all"),
 			},
