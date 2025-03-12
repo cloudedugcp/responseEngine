@@ -7,7 +7,7 @@ import (
 	"github.com/cloudedugcp/responseEngine/internal/actioner"
 	"github.com/cloudedugcp/responseEngine/internal/config"
 	"github.com/cloudedugcp/responseEngine/internal/db"
-	"github.com/cloudedugcp/responseEngine/internal/server" // Коректний імпорт пакету
+	"github.com/cloudedugcp/responseEngine/internal/server"
 )
 
 func main() {
@@ -26,28 +26,39 @@ func main() {
 	actioners := make(map[string]actioner.Actioner)
 
 	// Налаштування для FirewallActioner
-	var firewallProjectID, firewallCredsFile string
-	var firewallTimeout time.Duration
 	for _, sa := range cfg.Scenarios {
 		for _, act := range sa.Actioners {
 			if act.Name == "firewall" {
-				projectID, ok := act.Params["project_id"].(string)
-				if !ok {
-					log.Fatalf("firewall: project_id must be a string")
+				// Перевірка project_id
+				projID, exists := act.Params["project_id"]
+				if !exists {
+					log.Fatalf("firewall: project_id is missing in config")
 				}
-				firewallProjectID = projectID
+				firewallProjectID, ok := projID.(string)
+				if !ok {
+					log.Fatalf("firewall: project_id must be a string, got %T", projID)
+				}
 
-				credsFile, ok := act.Params["credentials_file"].(string)
-				if !ok {
-					log.Fatalf("firewall: credentials_file must be a string")
+				// Перевірка credentials_file
+				credsFile, exists := act.Params["credentials_file"]
+				if !exists {
+					log.Fatalf("firewall: credentials_file is missing in config")
 				}
-				firewallCredsFile = credsFile
+				firewallCredsFile, ok := credsFile.(string)
+				if !ok {
+					log.Fatalf("firewall: credentials_file must be a string, got %T", credsFile)
+				}
 
-				timeoutStr, ok := act.Params["timeout"].(string)
-				if !ok {
-					log.Fatalf("firewall: timeout must be a string")
+				// Перевірка timeout
+				timeout, exists := act.Params["timeout"]
+				if !exists {
+					log.Fatalf("firewall: timeout is missing in config")
 				}
-				firewallTimeout, err = time.ParseDuration(timeoutStr)
+				timeoutStr, ok := timeout.(string)
+				if !ok {
+					log.Fatalf("firewall: timeout must be a string, got %T", timeout)
+				}
+				firewallTimeout, err := time.ParseDuration(timeoutStr)
 				if err != nil {
 					log.Fatalf("firewall: invalid timeout value %s: %v", timeoutStr, err)
 				}
@@ -58,7 +69,7 @@ func main() {
 				}
 				actioners["firewall"] = firewallActioner
 			}
-			// Додайте ініціалізацію інших actioners (наприклад, storage, sigma) за потреби
+			// Додайте ініціалізацію інших actioners (storage, sigma) за потреби
 		}
 	}
 
