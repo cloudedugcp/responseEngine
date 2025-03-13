@@ -55,13 +55,29 @@ func (sn *SlackNotifier) HandleCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// Отримуємо form-данні від Slack
+	if err := r.ParseForm(); err != nil {
+		log.Printf("Failed to parse form: %v", err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// Витягуємо поле 'payload' і декодуємо його як JSON
+	payloadStr := r.FormValue("payload")
+	if payloadStr == "" {
+		log.Printf("No payload found in request")
+		http.Error(w, "No payload in request", http.StatusBadRequest)
+		return
+	}
+	log.Printf("Raw payload: %s", payloadStr)
+
 	var payload slack.InteractionCallback
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
 		log.Printf("Failed to decode Slack payload: %v", err)
 		http.Error(w, "Failed to decode payload", http.StatusBadRequest)
 		return
 	}
-	log.Printf("Received Slack payload: action_id=%s, actions=%+v", payload.ActionID, payload.ActionCallback.BlockActions)
+	log.Printf("Decoded Slack payload: action_id=%s, actions=%+v", payload.ActionID, payload.ActionCallback.BlockActions)
 
 	for _, action := range payload.ActionCallback.BlockActions {
 		log.Printf("Processing action: ActionID=%s, Value=%s", action.ActionID, action.Value)
