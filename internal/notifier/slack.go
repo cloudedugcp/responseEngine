@@ -17,9 +17,22 @@ type SlackButton struct {
 	Value string `json:"value"`
 }
 
+type SlackAction struct {
+	Name  string `json:"name"`
+	Text  string `json:"text"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+type SlackAttachment struct {
+	Text       string        `json:"text"`
+	CallbackID string        `json:"callback_id"`
+	Actions    []SlackAction `json:"actions"`
+}
+
 type SlackMessage struct {
-	Text    string        `json:"text"`
-	Actions []SlackButton `json:"actions"`
+	Text        string            `json:"text"`
+	Attachments []SlackAttachment `json:"attachments"`
 }
 
 func NewSlackNotifier(webhookURL, callbackURL string) *SlackNotifier {
@@ -27,7 +40,29 @@ func NewSlackNotifier(webhookURL, callbackURL string) *SlackNotifier {
 }
 
 func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButton) error {
-	msg := SlackMessage{Text: text, Actions: buttons}
+	// Формуємо дії (кнопки) для Slack
+	var slackActions []SlackAction
+	for _, button := range buttons {
+		slackActions = append(slackActions, SlackAction{
+			Name:  button.Name,
+			Text:  button.Name, // Текст на кнопці
+			Type:  "button",
+			Value: button.Value,
+		})
+	}
+
+	// Створюємо повідомлення з вкладенням для кнопок
+	msg := SlackMessage{
+		Text: text,
+		Attachments: []SlackAttachment{
+			{
+				Text:       "Choose an action:",
+				CallbackID: "block_ip_action", // Унікальний ID для callback
+				Actions:    slackActions,
+			},
+		},
+	}
+
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return err
