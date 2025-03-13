@@ -8,27 +8,30 @@ import (
 	"time"
 
 	"github.com/cloudedugcp/responseEngine/internal/db"
+	"github.com/cloudedugcp/responseEngine/internal/scenario"
 )
 
 type BlockRecordWithStatus struct {
 	ID            int
 	IP            string
 	Status        string
-	BlockedAt     string // Змінено з int64 на string для форматування
-	UnblockAfter  string // Змінено з int64 на string для форматування
+	BlockedAt     string
+	UnblockAfter  string
 	BlockCount    int
 	TriggerCount  int
-	LastEventTime string // Змінено з int64 на string для форматування
+	LastEventTime string
 }
 
 type Dashboard struct {
-	db *db.SQLiteDB
+	db       *db.SQLiteDB
+	scenario *scenario.Manager
 }
 
-func StartDashboard(port int, db *db.SQLiteDB) {
-	d := &Dashboard{db}
+func StartDashboard(port int, db *db.SQLiteDB, mgr *scenario.Manager) {
+	d := &Dashboard{db: db, scenario: mgr}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", d.dashboardHandler)
+	mux.HandleFunc("/unblock", d.unblockHandler) // Новий обробник
 	log.Printf("Dashboard starting on :%d", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
 }
@@ -48,7 +51,6 @@ func (d *Dashboard) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 			status = "Blocked"
 		}
 
-		// Форматуємо час у зрозумілому вигляді
 		blockedAt := "N/A"
 		if record.BlockedAt > 0 {
 			blockedAt = time.Unix(record.BlockedAt, 0).Format("2006-01-02 15:04:05")
@@ -80,4 +82,27 @@ func (d *Dashboard) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tmpl.Execute(w, recordsWithStatus)
+}
+
+func (d *Dashboard) unblockHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ip := r.FormValue("ip")
+	if ip == "" {
+		http.Error(w, "IP not provided", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Manual unblock requested for IP %s", ip)
+	err := d.scenario.ManualUnblock(ip)
+	if err != nil {
+		log.Printf("Failed to manually unblock IP %s: %v", ip, err)
+		http.Error(w, "Failed to unblock IP", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -46,6 +46,17 @@
             color: #388e3c;
             font-weight: bold;
         }
+        .unblock-btn {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .unblock-btn:hover {
+            background-color: #d32f2f;
+        }
     </style>
 </head>
 <body>
@@ -61,6 +72,7 @@
                 <th>Block Count</th>
                 <th>Trigger Count</th>
                 <th>Last Event Time</th>
+                <th>Action</th>
             </tr>
         </thead>
         <tbody>
@@ -74,6 +86,14 @@
                 <td>{{.BlockCount}}</td>
                 <td>{{.TriggerCount}}</td>
                 <td>{{.LastEventTime}}</td>
+                <td>
+                    {{if eq .Status "Blocked"}}
+                    <form method="POST" action="/unblock">
+                        <input type="hidden" name="ip" value="{{.IP}}">
+                        <button type="submit" class="unblock-btn">Unblock</button>
+                    </form>
+                    {{end}}
+                </td>
             </tr>
             {{end}}
         </tbody>

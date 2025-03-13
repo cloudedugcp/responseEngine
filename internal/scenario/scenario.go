@@ -13,20 +13,22 @@ import (
 )
 
 type Manager struct {
-	cfg       *config.Config
-	actioners map[string]actioner.Actioner
-	db        *db.SQLiteDB
-	notifier  *notifier.SlackNotifier
-	cancel    map[string]chan struct{} // Канали для скасування таймерів
+	cfg           *config.Config
+	actioners     map[string]actioner.Actioner
+	db            *db.SQLiteDB
+	notifier      *notifier.SlackNotifier
+	cancel        map[string]chan struct{} // Для скасування notifier timeout
+	unblockCancel map[string]chan struct{} // Для скасування unblock таймерів
 }
 
 func NewManager(cfg *config.Config, actioners map[string]actioner.Actioner, db *db.SQLiteDB, notifier *notifier.SlackNotifier) *Manager {
 	return &Manager{
-		cfg:       cfg,
-		actioners: actioners,
-		db:        db,
-		notifier:  notifier,
-		cancel:    make(map[string]chan struct{}),
+		cfg:           cfg,
+		actioners:     actioners,
+		db:            db,
+		notifier:      notifier,
+		cancel:        make(map[string]chan struct{}),
+		unblockCancel: make(map[string]chan struct{}),
 	}
 }
 
@@ -96,7 +98,6 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 			log.Printf("Slack message sent successfully for IP %s", ip)
 		}
 
-		// Створюємо канал для скасування таймера
 		cancelChan := make(chan struct{})
 		m.cancel[ip] = cancelChan
 
@@ -115,7 +116,6 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 					log.Printf("Action already taken for IP %s within notifier timeout", ip)
 				}
 			}
-			// Очищаємо канал після завершення
 			delete(m.cancel, ip)
 		})
 	} else {
@@ -156,31 +156,80 @@ func (m *Manager) ExecuteAction(action, ip string) {
 		record.BlockedAt = time.Now().Unix()
 		record.UnblockAfter = time.Now().Unix() + int64(scenario.Params.UnblockAfter*60)
 		record.BlockCount++
-		// Скасовуємо таймер, якщо він є
 		if cancelChan, ok := m.cancel[ip]; ok {
 			close(cancelChan)
 			delete(m.cancel, ip)
 			log.Printf("Cancelled notifier timeout for IP %s due to action execution", ip)
 		}
-		go m.scheduleUnblock(ip, record)
+		unblockCancelChan := make(chan struct{})
+		m.unblockCancel[ip] = unblockCancelChan
+		go m.scheduleUnblock(ip, record, unblockCancelChan)
 	}
 	if err := m.db.UpdateBlockRecord(record); err != nil {
 		log.Printf("Failed to update block record for IP %s: %v", ip, err)
 	}
 }
 
-func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
-	time.Sleep(time.Until(time.Unix(record.UnblockAfter, 0)))
-	log.Printf("Unblocking IP %s", ip)
+func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord, cancelChan chan struct{}) {
+	select {
+	case <-time.After(time.Until(time.Unix(record.UnblockAfter, 0))):
+		log.Printf("Unblocking IP %s", ip)
+		if firewall, ok := m.actioners["gcp_firewall"].(*actioner.GCPFirewall); ok {
+			if err := firewall.Unblock(ip); err != nil {
+				log.Printf("Failed to unblock IP %s: %v", ip, err)
+			}
+		}
+		record.BlockedAt = 0
+		record.TriggerCount = 0
+		record.ActionTaken = false
+		if err := m.db.UpdateBlockRecord(record); err != nil {
+			log.Printf("Failed to update block record for IP %s after unblock: %v", ip, err)
+		}
+	case <-cancelChan:
+		log.Printf("Unblock timer cancelled for IP %s", ip)
+	}
+	delete(m.unblockCancel, ip)
+}
+
+func (m *Manager) ManualUnblock(ip string) error {
+	record, err := m.db.GetOrCreateBlockRecord(ip)
+	if err != nil {
+		return fmt.Errorf("failed to get block record for IP %s: %v", ip, err)
+	}
+
+	if record.BlockedAt == 0 {
+		log.Printf("IP %s is not blocked, no action needed", ip)
+		return nil
+	}
+
+	// Скасовуємо таймер notifier, якщо він є
+	if cancelChan, ok := m.cancel[ip]; ok {
+		close(cancelChan)
+		delete(m.cancel, ip)
+		log.Printf("Cancelled notifier timeout for IP %s due to manual unblock", ip)
+	}
+
+	// Скасовуємо таймер розблокування, якщо він є
+	if unblockCancelChan, ok := m.unblockCancel[ip]; ok {
+		close(unblockCancelChan)
+		delete(m.unblockCancel, ip)
+		log.Printf("Cancelled unblock timer for IP %s due to manual unblock", ip)
+	}
+
+	// Виконуємо розблокування
 	if firewall, ok := m.actioners["gcp_firewall"].(*actioner.GCPFirewall); ok {
 		if err := firewall.Unblock(ip); err != nil {
-			log.Printf("Failed to unblock IP %s: %v", ip, err)
+			return fmt.Errorf("failed to unblock IP %s: %v", ip, err)
 		}
 	}
+
 	record.BlockedAt = 0
 	record.TriggerCount = 0
 	record.ActionTaken = false
 	if err := m.db.UpdateBlockRecord(record); err != nil {
-		log.Printf("Failed to update block record for IP %s after unblock: %v", ip, err)
+		return fmt.Errorf("failed to update block record for IP %s: %v", ip, err)
 	}
+
+	log.Printf("Successfully manually unblocked IP %s", ip)
+	return nil
 }

@@ -61,7 +61,8 @@ func (s *Server) Start() {
 	log.Printf("Registering Slack callback at %s", callbackPath)
 	mux.HandleFunc(callbackPath, s.handleSlackCallback)
 
-	go web.StartDashboard(s.cfg.Server.DashboardPort, s.db)
+	// Запуск дашборда з передачею scenario.Manager
+	go web.StartDashboard(s.cfg.Server.DashboardPort, s.db, s.scenarios)
 
 	log.Printf("Server starting on :%d", s.cfg.Server.Port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", s.cfg.Server.Port), mux))
