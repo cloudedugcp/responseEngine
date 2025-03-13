@@ -1,8 +1,8 @@
 package models
 
 type Event struct {
-	IP string `json:"ip"`
-	// Інші поля від Falco
+	IP   string `json:"ip"`
+	Rule string
 }
 
 type BlockRecord struct {

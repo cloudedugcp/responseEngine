@@ -8,31 +8,46 @@ import (
 
 type Config struct {
 	Server struct {
-		Port          int               `yaml:"port"`
-		DashboardPort int               `yaml:"dashboard_port"`
-		Aliases       map[string]string `yaml:"aliases"`
-	} `yaml:"server"`
+		Port          int
+		DashboardPort int `yaml:"dashboard_port"`
+		Aliases       map[string]string
+	}
 	Scenarios map[string]struct {
-		WaitTimeout   int      `yaml:"wait_timeout"`
-		TriggerCount  int      `yaml:"trigger_count"`
-		TriggerWindow int      `yaml:"trigger_window"`
-		UnblockAfter  int      `yaml:"unblock_after"`
-		Actioners     []string `yaml:"actioners"`
-	} `yaml:"scenarios"`
-	Actioners map[string]ActionerConfig `yaml:"actioners"`
+		Rule   string         `yaml:"rule"`
+		Params ScenarioParams `yaml:"params"`
+		Action ScenarioAction `yaml:"action"`
+	}
+	Actioners map[string]ActionerConfig
 	Notifier  struct {
 		Slack struct {
 			WebhookURL  string `yaml:"webhook_url"`
 			CallbackURL string `yaml:"callback_url"`
-		} `yaml:"slack"`
-	} `yaml:"notifier"`
+		}
+	}
+}
+
+type ScenarioParams struct {
+	TriggerCount  int `yaml:"trigger_count"`
+	TriggerWindow int `yaml:"trigger_window"`
+	UnblockAfter  int `yaml:"unblock_after"`
+}
+
+type ScenarioAction struct {
+	Actioners []string       `yaml:"actioners"`
+	Notifier  NotifierConfig `yaml:"notifier"`
+}
+
+type NotifierConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Name    string `yaml:"name"`
+	Timeout int    `yaml:"timeout"`
 }
 
 type ActionerConfig struct {
 	ProjectID       string `yaml:"project_id"`
+	BucketName      string `yaml:"bucket_name"`
+	LogCount        int    `yaml:"log_count"`
 	CredentialsFile string `yaml:"credentials_file"`
-	BucketName      string `yaml:"bucket_name,omitempty"`
-	LogCount        int    `yaml:"log_count,omitempty"`
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -31,6 +31,12 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 		return
 	}
 
+	// Перевіряємо, чи подія відповідає правилу Falco
+	if event.Rule != scenario.Rule {
+		log.Printf("Event rule %s does not match scenario rule %s for IP %s", event.Rule, scenario.Rule, event.IP)
+		return
+	}
+
 	record, err := m.db.GetOrCreateBlockRecord(event.IP)
 	if err != nil {
 		log.Printf("DB error for IP %s: %v", event.IP, err)
@@ -38,17 +44,17 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 	}
 
 	currentTime := time.Now().Unix()
-	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.TriggerWindow*60) {
+	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.Params.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
-		record.ActionTaken = false // Скидаємо ActionTaken, якщо вікно минув
+		record.ActionTaken = false
 	}
 
 	record.TriggerCount++
 	record.LastEventTime = currentTime
-	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.TriggerCount)
+	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.Params.TriggerCount)
 
-	if record.TriggerCount >= scenario.TriggerCount {
+	if record.TriggerCount >= scenario.Params.TriggerCount {
 		log.Printf("Trigger threshold reached for IP %s, executing scenario", event.IP)
 		m.executeScenario(scenarioName, event.IP, record)
 	}
@@ -61,27 +67,32 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 	scenario := m.cfg.Scenarios[scenarioName]
 	log.Printf("Executing scenario %s for IP %s", scenarioName, ip)
 
-	buttons := []notifier.SlackButton{}
-	for _, actName := range scenario.Actioners {
-		buttons = append(buttons, notifier.SlackButton{Name: actName, Value: actName})
-	}
-	buttons = append(buttons, notifier.SlackButton{Name: "Execute All", Value: "all"})
-
-	if err := m.notifier.SendMessageWithButtons(fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName), buttons); err != nil {
-		log.Printf("Failed to send Slack message for IP %s: %v", ip, err)
-	} else {
-		log.Printf("Slack message sent successfully for IP %s", ip)
-	}
-
-	time.AfterFunc(time.Duration(scenario.WaitTimeout)*time.Minute, func() {
-		updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
-		if !updatedRecord.ActionTaken {
-			log.Printf("No action taken within timeout for IP %s, executing all actioners", ip)
-			m.ExecuteAction("all", ip)
-		} else {
-			log.Printf("Action already taken for IP %s within timeout", ip)
+	if scenario.Action.Notifier.Enabled && scenario.Action.Notifier.Name == "slack" {
+		buttons := []notifier.SlackButton{}
+		for _, actName := range scenario.Action.Actioners {
+			buttons = append(buttons, notifier.SlackButton{Name: actName, Value: actName})
 		}
-	})
+		buttons = append(buttons, notifier.SlackButton{Name: "Execute All", Value: "all"})
+
+		if err := m.notifier.SendMessageWithButtons(fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName), buttons); err != nil {
+			log.Printf("Failed to send Slack message for IP %s: %v", ip, err)
+		} else {
+			log.Printf("Slack message sent successfully for IP %s", ip)
+		}
+
+		time.AfterFunc(time.Duration(scenario.Action.Notifier.Timeout)*time.Minute, func() {
+			updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
+			if !updatedRecord.ActionTaken {
+				log.Printf("No action taken within notifier timeout for IP %s, executing all actioners", ip)
+				m.ExecuteAction("all", ip)
+			} else {
+				log.Printf("Action already taken for IP %s within notifier timeout", ip)
+			}
+		})
+	} else {
+		log.Printf("Notifier disabled for scenario %s, executing all actioners for IP %s", scenarioName, ip)
+		m.ExecuteAction("all", ip)
+	}
 }
 
 func (m *Manager) ExecuteAction(action, ip string) {
@@ -94,7 +105,7 @@ func (m *Manager) ExecuteAction(action, ip string) {
 	}
 
 	if action == "all" {
-		for _, actName := range scenario.Actioners {
+		for _, actName := range scenario.Action.Actioners {
 			if err := m.actioners[actName].Execute(ip); err != nil {
 				log.Printf("Failed to execute actioner %s for IP %s: %v", actName, ip, err)
 			}
@@ -109,11 +120,10 @@ func (m *Manager) ExecuteAction(action, ip string) {
 		return
 	}
 
-	// Позначаємо, що дія була виконана
 	record.ActionTaken = true
 	if action == "gcp_firewall" || action == "all" {
 		record.BlockedAt = time.Now().Unix()
-		record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*60)
+		record.UnblockAfter = time.Now().Unix() + int64(scenario.Params.UnblockAfter*60)
 		record.BlockCount++
 		go m.scheduleUnblock(ip, record)
 	}
