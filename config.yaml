@@ -22,6 +22,7 @@ scenarios:
       - name: "sigma"
         params:
           prefix: "sigma_rules/"
+    auto_run_delay: "10m"
     notify:
       enabled: true
       type: "slack"

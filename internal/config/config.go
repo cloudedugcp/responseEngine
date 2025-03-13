@@ -29,8 +29,9 @@ type ScenarioConfig struct {
 		TriggerCount int    `yaml:"trigger_count"`
 		TimeWindow   string `yaml:"time_window"`
 	} `yaml:"conditions"`
-	Actioners []ActionerConfig `yaml:"actioners"`
-	Notify    NotifyConfig     `yaml:"notify"`
+	Actioners    []ActionerConfig `yaml:"actioners"`
+	AutoRunDelay string           `yaml:"auto_run_delay"`
+	Notify       NotifyConfig     `yaml:"notify"`
 }
 
 // ActionerConfig представляє конфігурацію діяча

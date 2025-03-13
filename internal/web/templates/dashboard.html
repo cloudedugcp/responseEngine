@@ -1,33 +1,57 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Response Engine Dashboard</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+    </style>
 </head>
 <body>
-    <h1>IP Action Logs</h1>
-    <table border="1">
-        <tr>
-            <th>IP</th>
-            <th>Last Event</th>
-            <th>Attempt Count</th>
-            <th>Last Attempt Time</th>
-            <th>Block Time</th>
-            <th>Unblock Time</th>
-            <th>Block Count</th>
-            <th>Status</th>
-        </tr>
-        {{range .Actions}}
-        <tr>
-            <td>{{.IP}}</td>
-            <td>{{.LastEvent}}</td>
-            <td>{{.AttemptCount}}</td>
-            <td>{{.LastAttemptTime}}</td>
-            <td>{{if .BlockTime.IsZero}}N/A{{else}}{{.BlockTime}}{{end}}</td>
-            <td>{{if .UnblockTime.IsZero}}N/A{{else}}{{.UnblockTime}}{{end}}</td>
-            <td>{{.BlockCount}}</td>
-            <td>{{.Status}}</td>
-        </tr>
-        {{end}}
+    <h1>Response Engine Dashboard</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>IP</th>
+                <th>Last Event</th>
+                <th>Attempt Count</th>
+                <th>Last Attempt Time</th>
+                <th>Block Time</th>
+                <th>Unblock Time</th>
+                <th>Block Count</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .}}
+            <tr>
+                <td>{{.IP}}</td>
+                <td>{{.LastEvent}}</td>
+                <td>{{.AttemptCount}}</td>
+                <td>{{.LastAttemptTime}}</td>
+                <td>{{if .BlockTime.IsZero}}N/A{{else}}{{.BlockTime}}{{end}}</td>
+                <td>{{if .UnblockTime.IsZero}}N/A{{else}}{{.UnblockTime}}{{end}}</td>
+                <td>{{.BlockCount}}</td>
+                <td>{{.Status}}</td>
+            </tr>
+            {{end}}
+        </tbody>
     </table>
 </body>
 </html>

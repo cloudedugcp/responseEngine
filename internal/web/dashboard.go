@@ -1,67 +1,79 @@
 package web
 
 import (
+	"database/sql"
 	"html/template"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/cloudedugcp/responseEngine/internal/db"
 )
 
-func DashboardHandler(db *db.Database) http.HandlerFunc {
+// DashboardData представляє дані для відображення в дашборді
+type DashboardData struct {
+	IP              string
+	LastEvent       string
+	AttemptCount    int
+	LastAttemptTime time.Time
+	BlockTime       time.Time
+	UnblockTime     time.Time
+	BlockCount      int
+	Status          string
+}
+
+// DashboardHandler обробляє запит до дашборду
+func DashboardHandler(database *db.Database) http.HandlerFunc {
+	tmpl, err := template.ParseFiles("internal/web/templates/dashboard.html")
+	if err != nil {
+		log.Fatalf("Failed to parse dashboard template: %v", err)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		stats, err := db.GetIPStats()
+		rows, err := database.DB().Query(`
+            SELECT 
+                e.ip,
+                e.rule_name AS last_event,
+                (SELECT COUNT(*) FROM events WHERE ip = e.ip) AS attempt_count,
+                MAX(e.timestamp) AS last_attempt_time,
+                a.block_time,
+                a.unblock_time,
+                (SELECT COUNT(*) FROM actions WHERE ip = e.ip AND action = 'block') AS block_count,
+                CASE 
+                    WHEN a.unblock_time > CURRENT_TIMESTAMP THEN 'Blocked'
+                    ELSE 'Unblocked'
+                END AS status
+            FROM events e
+            LEFT JOIN actions a ON e.ip = a.ip AND a.action = 'block'
+            GROUP BY e.ip, e.rule_name, a.block_time, a.unblock_time
+        `)
 		if err != nil {
-			http.Error(w, "Failed to fetch IP stats: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("Failed to query dashboard data: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
+		}
+		defer rows.Close()
+
+		var data []DashboardData
+		for rows.Next() {
+			var d DashboardData
+			var blockTime, unblockTime sql.NullTime
+			if err := rows.Scan(&d.IP, &d.LastEvent, &d.AttemptCount, &d.LastAttemptTime, &blockTime, &unblockTime, &d.BlockCount, &d.Status); err != nil {
+				log.Printf("Failed to scan dashboard row: %v", err)
+				continue
+			}
+			if blockTime.Valid {
+				d.BlockTime = blockTime.Time
+			}
+			if unblockTime.Valid {
+				d.UnblockTime = unblockTime.Time
+			}
+			data = append(data, d)
 		}
 
-		tmpl := `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Response Engine Dashboard</title>
-            <style>
-                table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid black; padding: 8px; text-align: left; }
-                th { background-color: #f2f2f2; }
-            </style>
-        </head>
-        <body>
-            <h1>IP Block Dashboard</h1>
-            <table>
-                <tr>
-                    <th>IP</th>
-                    <th>Last Event</th>
-                    <th>Attempt Count</th>
-                    <th>Last Attempt Time</th>
-                    <th>Block Time</th>
-                    <th>Unblock Time</th>
-                    <th>Block Count</th>
-                    <th>Status</th>
-                </tr>
-                {{range .}}
-                <tr>
-                    <td>{{.IP}}</td>
-                    <td>{{.LastEvent}}</td>
-                    <td>{{.AttemptCount}}</td>
-                    <td>{{.LastAttemptTime.Format "2006-01-02 15:04:05 -0700 MST"}}</td>
-                    <td>{{if .BlockTime.IsZero}} - {{else}}{{.BlockTime.Format "2006-01-02 15:04:05 -0700 MST"}}{{end}}</td>
-                    <td>{{if .UnblockTime.IsZero}} - {{else}}{{.UnblockTime.Format "2006-01-02 15:04:05 -0700 MST"}}{{end}}</td>
-                    <td>{{.BlockCount}}</td>
-                    <td>{{.Status}}</td>
-                </tr>
-                {{end}}
-            </table>
-        </body>
-        </html>
-        `
-		t, err := template.New("dashboard").Parse(tmpl)
-		if err != nil {
-			http.Error(w, "Failed to parse template: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := t.Execute(w, stats); err != nil {
-			http.Error(w, "Failed to render template: "+err.Error(), http.StatusInternalServerError)
+		if err := tmpl.Execute(w, data); err != nil {
+			log.Printf("Failed to render dashboard: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 	}
 }

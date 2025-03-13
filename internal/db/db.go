@@ -13,25 +13,30 @@ type Database struct {
 	db *sql.DB
 }
 
-// NewDatabase створює нову базу даних
+// NewDatabase ініціалізує нову базу даних
 func NewDatabase(path string) (*Database, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, err
 	}
 
+	// Ініціалізація таблиць
 	_, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip TEXT,
             rule_name TEXT,
             log TEXT,
             timestamp DATETIME
         );
         CREATE TABLE IF NOT EXISTS actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip TEXT,
-            action_type TEXT,
+            action TEXT,
             status TEXT,
-            timestamp DATETIME
+            timestamp DATETIME,
+            block_time DATETIME,
+            unblock_time DATETIME
         );
     `)
 	if err != nil {
@@ -39,6 +44,11 @@ func NewDatabase(path string) (*Database, error) {
 	}
 
 	return &Database{db: db}, nil
+}
+
+// DB повертає *sql.DB для зовнішнього використання
+func (d *Database) DB() *sql.DB {
+	return d.db
 }
 
 // Close закриває базу даних
@@ -50,97 +60,46 @@ func (d *Database) Close() error {
 func (d *Database) LogEvent(ip, ruleName, logText string, timestamp time.Time) error {
 	_, err := d.db.Exec("INSERT INTO events (ip, rule_name, log, timestamp) VALUES (?, ?, ?, ?)", ip, ruleName, logText, timestamp)
 	if err != nil {
-		log.Printf("Error inserting event: ip=%s, rule=%s, log=%s, timestamp=%s, err=%v", ip, ruleName, logText, timestamp, err)
-	} else {
-		log.Printf("Event logged: ip=%s, rule=%s, log=%s, timestamp=%s", ip, ruleName, logText, timestamp)
+		log.Printf("Error inserting event: %v", err)
 	}
 	return err
 }
 
-// CountEvents підраховує кількість подій за IP за певний час
+// CountEvents підраховує кількість подій
 func (d *Database) CountEvents(ip string, window time.Duration) (int, error) {
 	cutoff := time.Now().Add(-window)
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM events WHERE ip = ? AND timestamp >= ?", ip, cutoff).Scan(&count)
 	if err != nil {
-		log.Printf("Error counting events: ip=%s, cutoff=%s, err=%v", ip, cutoff, err)
+		log.Printf("Error counting events: %v", err)
 		return 0, err
 	}
-	log.Printf("Counted %d events for ip=%s since %s", count, ip, cutoff)
 	return count, nil
 }
 
-// LogAction логує дію (block/unblock)
-func (d *Database) LogAction(ip, actionType, status string, timestamp time.Time) error {
-	_, err := d.db.Exec("INSERT INTO actions (ip, action_type, status, timestamp) VALUES (?, ?, ?, ?)", ip, actionType, status, timestamp)
-	if err != nil {
-		return err
-	}
-	if actionType == "block" {
-		_, err = d.db.Exec("UPDATE actions SET status = 'blocked' WHERE ip = ? AND action_type = 'block' AND status != 'unblocked'", ip)
-	}
+// LogAction логує дію
+func (d *Database) LogAction(ip, action, status string, timestamp time.Time) error {
+	_, err := d.db.Exec("INSERT INTO actions (ip, action, status, timestamp) VALUES (?, ?, ?, ?)", ip, action, status, timestamp)
 	return err
 }
 
-// GetBlockCount підраховує кількість блокувань для IP
+// GetBlockCount повертає кількість блокувань
 func (d *Database) GetBlockCount(ip string) (int, error) {
 	var count int
-	err := d.db.QueryRow("SELECT COUNT(*) FROM actions WHERE ip = ? AND action_type = 'block'", ip).Scan(&count)
-	return count, err
+	err := d.db.QueryRow("SELECT COUNT(*) FROM actions WHERE ip = ? AND action = 'block'", ip).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
-// ResetAttemptCount скидає кількість спроб для IP
+// ResetAttemptCount скидає лічильник спроб для IP
 func (d *Database) ResetAttemptCount(ip string) error {
 	_, err := d.db.Exec("DELETE FROM events WHERE ip = ?", ip)
-	return err
-}
-
-// GetIPStats повертає статистику по IP для дашборда
-func (d *Database) GetIPStats() ([]IPStats, error) {
-	rows, err := d.db.Query(`
-        SELECT 
-            e.ip, 
-            MAX(e.rule_name) as last_event, 
-            COUNT(e.ip) as attempt_count, 
-            MAX(e.timestamp) as last_attempt_time,
-            (SELECT MAX(timestamp) FROM actions WHERE ip = e.ip AND action_type = 'block' AND status = 'blocked') as block_time,
-            (SELECT MAX(timestamp) FROM actions WHERE ip = e.ip AND action_type = 'unblock' AND status = 'unblocked') as unblock_time,
-            (SELECT COUNT(*) FROM actions WHERE ip = e.ip AND action_type = 'block') as block_count,
-            COALESCE((SELECT status FROM actions WHERE ip = e.ip ORDER BY timestamp DESC LIMIT 1), 'pending') as status
-        FROM events e
-        GROUP BY e.ip
-    `)
 	if err != nil {
-		return nil, err
+		log.Printf("Failed to reset attempt count for IP %s: %v", ip, err)
+		return err
 	}
-	defer rows.Close()
-
-	var stats []IPStats
-	for rows.Next() {
-		var s IPStats
-		var blockTime, unblockTime sql.NullTime
-		if err := rows.Scan(&s.IP, &s.LastEvent, &s.AttemptCount, &s.LastAttemptTime, &blockTime, &unblockTime, &s.BlockCount, &s.Status); err != nil {
-			return nil, err
-		}
-		if blockTime.Valid {
-			s.BlockTime = blockTime.Time
-		}
-		if unblockTime.Valid {
-			s.UnblockTime = unblockTime.Time
-		}
-		stats = append(stats, s)
-	}
-	return stats, nil
-}
-
-// IPStats представляє статистику по IP
-type IPStats struct {
-	IP              string
-	LastEvent       string
-	AttemptCount    int
-	LastAttemptTime time.Time
-	BlockTime       time.Time
-	UnblockTime     time.Time
-	BlockCount      int
-	Status          string
+	log.Printf("Attempt count reset for IP %s", ip)
+	return nil
 }
