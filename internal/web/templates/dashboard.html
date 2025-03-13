@@ -13,6 +13,7 @@
         <tr>
             <th>ID</th>
             <th>IP</th>
+            <th>Status</th>
             <th>Blocked At</th>
             <th>Unblock After</th>
             <th>Block Count</th>
@@ -23,6 +24,7 @@
         <tr>
             <td>{{.ID}}</td>
             <td>{{.IP}}</td>
+            <td>{{.Status}}</td>
             <td>{{if .BlockedAt}}{{.BlockedAt}}{{else}}N/A{{end}}</td>
             <td>{{if .UnblockAfter}}{{.UnblockAfter}}{{else}}N/A{{end}}</td>
             <td>{{.BlockCount}}</td>
