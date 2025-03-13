@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -83,35 +82,43 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received Slack callback: Method=%s, URL=%s", r.Method, r.URL.String())
 
-	var rawBody bytes.Buffer
-	if _, err := rawBody.ReadFrom(r.Body); err != nil {
-		log.Printf("Failed to read callback body: %v", err)
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	log.Printf("Raw callback body: %s", rawBody.String())
-
-	var slackPayload struct {
-		Payload string `json:"payload"`
-	}
-	if err := json.Unmarshal(rawBody.Bytes(), &slackPayload); err != nil {
-		log.Printf("Failed to decode outer payload: %v", err)
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	// Перевіряємо, що запит є POST
+	if r.Method != http.MethodPost {
+		log.Printf("Invalid method: %s", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Парсимо URL-encoded форму
+	if err := r.ParseForm(); err != nil {
+		log.Printf("Failed to parse form: %v", err)
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Отримуємо поле payload
+	payloadRaw := r.FormValue("payload")
+	if payloadRaw == "" {
+		log.Printf("No payload found in callback")
+		http.Error(w, "Missing payload", http.StatusBadRequest)
+		return
+	}
+	log.Printf("Raw callback payload: %s", payloadRaw)
+
+	// Розпарсимо JSON із payload
 	var payload struct {
 		CallbackID string `json:"callback_id"`
 		Actions    []struct {
+			Name  string `json:"name"`
 			Value string `json:"value"`
 		} `json:"actions"`
 		OriginalMessage struct {
 			Text string `json:"text"`
 		} `json:"original_message"`
 	}
-	if err := json.Unmarshal([]byte(slackPayload.Payload), &payload); err != nil {
-		log.Printf("Failed to decode inner payload: %v", err)
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
+		log.Printf("Failed to decode payload: %v", err)
+		http.Error(w, "Invalid JSON in payload", http.StatusBadRequest)
 		return
 	}
 
