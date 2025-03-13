@@ -10,16 +10,15 @@ import (
 	"github.com/cloudedugcp/responseEngine/internal/db"
 )
 
-// BlockRecordWithStatus - структура з доданим полем Status
 type BlockRecordWithStatus struct {
 	ID            int
 	IP            string
 	Status        string
-	BlockedAt     int64
-	UnblockAfter  int64
+	BlockedAt     string // Змінено з int64 на string для форматування
+	UnblockAfter  string // Змінено з int64 на string для форматування
 	BlockCount    int
 	TriggerCount  int
-	LastEventTime int64
+	LastEventTime string // Змінено з int64 на string для форматування
 }
 
 type Dashboard struct {
@@ -41,7 +40,6 @@ func (d *Dashboard) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Перетворюємо записи в формат із статусом
 	currentTime := time.Now().Unix()
 	var recordsWithStatus []BlockRecordWithStatus
 	for _, record := range records {
@@ -49,15 +47,30 @@ func (d *Dashboard) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		if record.BlockedAt > 0 && record.UnblockAfter > currentTime {
 			status = "Blocked"
 		}
+
+		// Форматуємо час у зрозумілому вигляді
+		blockedAt := "N/A"
+		if record.BlockedAt > 0 {
+			blockedAt = time.Unix(record.BlockedAt, 0).Format("2006-01-02 15:04:05")
+		}
+		unblockAfter := "N/A"
+		if record.UnblockAfter > 0 {
+			unblockAfter = time.Unix(record.UnblockAfter, 0).Format("2006-01-02 15:04:05")
+		}
+		lastEventTime := "N/A"
+		if record.LastEventTime > 0 {
+			lastEventTime = time.Unix(record.LastEventTime, 0).Format("2006-01-02 15:04:05")
+		}
+
 		recordsWithStatus = append(recordsWithStatus, BlockRecordWithStatus{
 			ID:            record.ID,
 			IP:            record.IP,
 			Status:        status,
-			BlockedAt:     record.BlockedAt,
-			UnblockAfter:  record.UnblockAfter,
+			BlockedAt:     blockedAt,
+			UnblockAfter:  unblockAfter,
 			BlockCount:    record.BlockCount,
 			TriggerCount:  record.TriggerCount,
-			LastEventTime: record.LastEventTime,
+			LastEventTime: lastEventTime,
 		})
 	}
 

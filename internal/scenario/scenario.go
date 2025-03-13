@@ -37,9 +37,9 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 		return
 	}
 
-	// Додаємо логіку для trigger_window
+	// Додаємо логіку для trigger_window (у хвилинах)
 	currentTime := time.Now().Unix()
-	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.TriggerWindow) {
+	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
 	}
@@ -73,7 +73,8 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 		log.Printf("Slack message sent successfully for IP %s", ip)
 	}
 
-	time.AfterFunc(time.Duration(scenario.WaitTimeout)*time.Second, func() {
+	// Використовуємо хвилини замість секунд для WaitTimeout
+	time.AfterFunc(time.Duration(scenario.WaitTimeout)*time.Minute, func() {
 		if !m.db.WasActionTaken(ip) {
 			log.Printf("No action taken within timeout for IP %s, executing all actioners", ip)
 			m.ExecuteAction("all", ip)
@@ -112,7 +113,8 @@ func (m *Manager) ExecuteAction(action, ip string) {
 	// Оновлюємо запис у базі лише для блокуючих дій
 	if action == "gcp_firewall" || action == "all" {
 		record.BlockedAt = time.Now().Unix()
-		record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*record.BlockCount)
+		// Використовуємо хвилини замість секунд для UnblockAfter
+		record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*60)
 		record.BlockCount++
 		if err := m.db.UpdateBlockRecord(record); err != nil {
 			log.Printf("Failed to update block record for IP %s: %v", ip, err)
@@ -124,7 +126,12 @@ func (m *Manager) ExecuteAction(action, ip string) {
 func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
 	time.Sleep(time.Until(time.Unix(record.UnblockAfter, 0)))
 	log.Printf("Unblocking IP %s", ip)
-	m.actioners["gcp_firewall"].Execute(ip) // Логіка розблокування
+	// Оновлено: викликаємо Unblock замість Execute для gcp_firewall
+	if firewall, ok := m.actioners["gcp_firewall"].(*actioner.GCPFirewall); ok {
+		if err := firewall.Unblock(ip); err != nil {
+			log.Printf("Failed to unblock IP %s: %v", ip, err)
+		}
+	}
 	record.BlockedAt = 0
 	record.TriggerCount = 0
 	m.db.UpdateBlockRecord(record)
