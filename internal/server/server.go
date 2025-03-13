@@ -109,19 +109,8 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 			Value string `json:"value"`
 		} `json:"actions"`
 		OriginalMessage struct {
-			Text        string `json:"text"`
-			Attachments []struct {
-				Text       string `json:"text"`
-				CallbackID string `json:"callback_id"`
-				Actions    []struct {
-					Name  string `json:"name"`
-					Text  string `json:"text"`
-					Type  string `json:"type"`
-					Value string `json:"value"`
-				} `json:"actions"`
-			} `json:"attachments"`
+			Text string `json:"text"`
 		} `json:"original_message"`
-		ResponseURL string `json:"response_url"`
 	}
 	if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
 		log.Printf("Failed to decode payload: %v", err)
@@ -135,7 +124,7 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 	if payload.CallbackID == "block_ip_action" && len(payload.Actions) > 0 {
 		action := payload.Actions[0].Value
 		var ip string
-		if _, err := fmt.Sscanf(payload.OriginalMessage.Text, "Вибери дію для IP %s", &ip); err != nil {
+		if _, err := fmt.Sscanf(payload.OriginalMessage.Text, "IP %s triggered scenario block_ip", &ip); err != nil {
 			log.Printf("Failed to extract IP from message: %v", err)
 			http.Error(w, "Cannot parse IP", http.StatusBadRequest)
 			return
@@ -145,23 +134,24 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 		s.scenarios.ExecuteAction(action, ip)
 
 		// Оновлюємо повідомлення без кнопок
-		updatedMessage := struct {
+		response := struct {
 			Text        string `json:"text"`
 			Attachments []struct {
 				Text string `json:"text"`
 			} `json:"attachments"`
+			ReplaceOriginal bool `json:"replace_original"`
 		}{
 			Text: payload.OriginalMessage.Text,
 			Attachments: []struct {
 				Text string `json:"text"`
 			}{
-				{Text: fmt.Sprintf("Дію %s виконано для IP %s. Кнопки відключені.", action, ip)},
+				{Text: fmt.Sprintf("Дію %s виконано для IP %s.", action, ip)},
 			},
+			ReplaceOriginal: true,
 		}
 
-		// Надсилаємо оновлене повідомлення у відповідь
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(updatedMessage); err != nil {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Printf("Failed to encode response: %v", err)
 			return
 		}

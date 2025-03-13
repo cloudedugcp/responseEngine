@@ -87,26 +87,38 @@ func (m *Manager) ExecuteAction(action, ip string) {
 	scenario := m.cfg.Scenarios["block_ip"]
 	record, _ := m.db.GetOrCreateBlockRecord(ip)
 
+	// Перевіряємо, чи IP уже заблоковано
+	if record.BlockedAt > 0 && action != "all" {
+		log.Printf("IP %s already blocked, skipping action %s", ip, action)
+		return
+	}
+
 	if action == "all" {
 		for _, actName := range scenario.Actioners {
 			if err := m.actioners[actName].Execute(ip); err != nil {
 				log.Printf("Failed to execute actioner %s for IP %s: %v", actName, ip, err)
 			}
 		}
-	} else {
-		if err := m.actioners[action].Execute(ip); err != nil {
+	} else if actioner, ok := m.actioners[action]; ok {
+		if err := actioner.Execute(ip); err != nil {
 			log.Printf("Failed to execute actioner %s for IP %s: %v", action, ip, err)
+			return
 		}
+	} else {
+		log.Printf("Unknown action %s for IP %s", action, ip)
+		return
 	}
 
-	record.BlockedAt = time.Now().Unix()
-	record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*record.BlockCount)
-	record.BlockCount++
-	if err := m.db.UpdateBlockRecord(record); err != nil {
-		log.Printf("Failed to update block record for IP %s: %v", ip, err)
+	// Оновлюємо запис у базі лише для блокуючих дій
+	if action == "gcp_firewall" || action == "all" {
+		record.BlockedAt = time.Now().Unix()
+		record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*record.BlockCount)
+		record.BlockCount++
+		if err := m.db.UpdateBlockRecord(record); err != nil {
+			log.Printf("Failed to update block record for IP %s: %v", ip, err)
+		}
+		go m.scheduleUnblock(ip, record)
 	}
-
-	go m.scheduleUnblock(ip, record)
 }
 
 func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
