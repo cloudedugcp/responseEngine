@@ -3,12 +3,10 @@ module github.com/cloudedugcp/responseEngine
 go 1.23.3
 
 require (
-	cloud.google.com/go/compute v1.34.0
 	cloud.google.com/go/storage v1.50.0
 	github.com/mattn/go-sqlite3 v1.14.24
-	github.com/slack-go/slack v0.16.0
 	google.golang.org/api v0.222.0
-	gopkg.in/yaml.v3 v3.0.1
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -34,7 +32,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect

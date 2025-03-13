@@ -1,17 +1,16 @@
 package actioner
 
-/* import "time"
+import "github.com/cloudedugcp/responseEngine/internal/config"
 
-// Event - подія від Falco
-type Event struct {
-	IP        string `json:"ip"`
-	RuleName  string `json:"rule"`
-	Log       string `json:"log,omitempty"` // Додаємо поле для логів, опціональне
-	Timestamp time.Time
+type Actioner interface {
+	Execute(ip string) error
+	Name() string
 }
 
-// Actioner - інтерфейс для виконавців дій
-type Actioner interface {
-	Execute(event Event, params map[string]interface{}) error
-	Name() string
-} */
+func NewGCPFirewall(cfg config.ActionerConfig) *GCPFirewall {
+	return &GCPFirewall{cfg: cfg}
+}
+
+func NewGCPStorage(cfg config.ActionerConfig) *GCPStorage {
+	return &GCPStorage{cfg: cfg}
+}

@@ -1,53 +1,31 @@
 server:
-  port: ":8080"
+  port: 8080
+  dashboard_port: 8081
   aliases:
-    "/falco": "falco_events"
-    "/cilium": "cilium_events"
+    falco: "/falco"
+    cilium: "/cilium"
 
 scenarios:
-  - name: "block_ip"
-    falco_rule: "Suspicious Network Activity"
-    conditions:
-      trigger_count: 3
-      time_window: "3600s"
+  block_ip:
+    wait_timeout: 300 # секунди
+    trigger_count: 3  # Кількість спрацьовувань
+    trigger_window: 3600 # Вікно в секундах (1 година)
+    unblock_after: 600 # Час блокування в секундах
     actioners:
-      - name: "firewall"
-        params:
-          priority: 1000
-          description: "Blocked by Falco rule"
-          timeout: "5m"
-      - name: "storage"
-        params:
-          prefix: "blocked_ips/"
-      - name: "sigma"
-        params:
-          prefix: "sigma_rules/"
-    auto_run_delay: "10m"
-    notify:
-      enabled: true
-      type: "slack"
+      - gcp_firewall
+      - gcp_storage
 
 actioners:
-  firewall:
-    type: "gcp_firewall"
-    params:
-      project_id: "my-project"
-      timeout: 60
-      multiply_timeout: true
-      credentials_file: "/path/to/firewall-service-account.json"
-  storage:
-    type: "gcp_storage"
-    params:
-      bucket_name: "my-logs-bucket"
-      log_count: 100
-      credentials_file: "/path/to/storage-service-account.json"
-  sigma:
-    type: "sigma_storage"
-    params:
-      bucket_name: "my-logs-bucket"
-      credentials_file: "/path/to/sigma-service-account.json"
+  gcp_firewall:
+    project_id: "my-gcp-project"
+    credentials_file: "path/to/credentials.json"
+  gcp_storage:
+    project_id: "my-gcp-project"
+    bucket_name: "my-logs-bucket"
+    log_count: 100
+    credentials_file: "path/to/credentials.json"
 
-notifiers:
+notifier:
   slack:
-    webhook_url: "https://hooks.slack.com/services/TXXXXX/BXXXXX/XXXXX" 
-    callback_path: "/slack/callback" 
+    webhook_url: "https://hooks.slack.com/services/xxx/yyy/zzz"
+    callback_url: "http://localhost:8080/callback"
