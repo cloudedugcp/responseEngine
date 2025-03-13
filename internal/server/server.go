@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/cloudedugcp/responseEngine/internal/actioner"
 	"github.com/cloudedugcp/responseEngine/internal/config"
@@ -48,7 +49,18 @@ func (s *Server) Start() {
 		log.Printf("Registering alias %s at %s", alias, path)
 		mux.HandleFunc(path, s.handleEvent)
 	}
-	mux.HandleFunc("/callback", s.handleSlackCallback)
+
+	// Витягуємо шлях із callback_url
+	callbackURL, err := url.Parse(s.cfg.Notifier.Slack.CallbackURL)
+	if err != nil {
+		log.Fatalf("Failed to parse callback_url from config: %v", err)
+	}
+	callbackPath := callbackURL.Path
+	if callbackPath == "" {
+		callbackPath = "/callback" // Запасний варіант, якщо шлях не вказано
+	}
+	log.Printf("Registering Slack callback at %s", callbackPath)
+	mux.HandleFunc(callbackPath, s.handleSlackCallback)
 
 	go web.StartDashboard(s.cfg.Server.DashboardPort, s.db)
 
@@ -71,7 +83,6 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received Slack callback: Method=%s, URL=%s", r.Method, r.URL.String())
 
-	// Логуємо тіло запиту для діагностики
 	var rawBody bytes.Buffer
 	if _, err := rawBody.ReadFrom(r.Body); err != nil {
 		log.Printf("Failed to read callback body: %v", err)
@@ -80,7 +91,6 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Raw callback body: %s", rawBody.String())
 
-	// Slack надсилає дані у вигляді JSON у полі "payload"
 	var slackPayload struct {
 		Payload string `json:"payload"`
 	}
@@ -90,7 +100,6 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Розпарсимо внутрішній payload
 	var payload struct {
 		CallbackID string `json:"callback_id"`
 		Actions    []struct {
@@ -111,7 +120,6 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 
 	if payload.CallbackID == "block_ip_action" && len(payload.Actions) > 0 {
 		action := payload.Actions[0].Value
-		// Витягуємо IP із тексту повідомлення (наприклад, "IP 192.168.1.1 triggered...")
 		var ip string
 		if _, err := fmt.Sscanf(payload.OriginalMessage.Text, "IP %s triggered scenario block_ip", &ip); err != nil {
 			log.Printf("Failed to extract IP from message: %v", err)
