@@ -25,7 +25,8 @@ func NewSQLiteDB(path string) (*SQLiteDB, error) {
             unblock_after INTEGER,
             block_count INTEGER,
             trigger_count INTEGER,
-            last_event_time INTEGER DEFAULT 0
+            last_event_time INTEGER DEFAULT 0,
+			action_taken BOOLEAN DEFAULT 0
         )
     `)
 	return &SQLiteDB{db}, err
