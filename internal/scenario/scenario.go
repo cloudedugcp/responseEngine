@@ -17,10 +17,17 @@ type Manager struct {
 	actioners map[string]actioner.Actioner
 	db        *db.SQLiteDB
 	notifier  *notifier.SlackNotifier
+	cancel    map[string]chan struct{} // Канали для скасування таймерів
 }
 
 func NewManager(cfg *config.Config, actioners map[string]actioner.Actioner, db *db.SQLiteDB, notifier *notifier.SlackNotifier) *Manager {
-	return &Manager{cfg, actioners, db, notifier}
+	return &Manager{
+		cfg:       cfg,
+		actioners: actioners,
+		db:        db,
+		notifier:  notifier,
+		cancel:    make(map[string]chan struct{}),
+	}
 }
 
 func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
@@ -46,10 +53,9 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.Params.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
-		record.ActionTaken = false // Скидаємо, якщо вікно минув
+		record.ActionTaken = false
 	}
 
-	// Перевіряємо, чи сценарій уже активний
 	if record.ActionTaken && record.BlockedAt > 0 {
 		log.Printf("Scenario already active for IP %s, skipping execution", event.IP)
 		return
@@ -90,15 +96,27 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 			log.Printf("Slack message sent successfully for IP %s", ip)
 		}
 
+		// Створюємо канал для скасування таймера
+		cancelChan := make(chan struct{})
+		m.cancel[ip] = cancelChan
+
 		log.Printf("Setting notifier timeout to %d minutes for IP %s", scenario.Action.Notifier.Timeout, ip)
 		time.AfterFunc(time.Duration(scenario.Action.Notifier.Timeout)*time.Minute, func() {
-			updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
-			if !updatedRecord.ActionTaken {
-				log.Printf("No action taken within notifier timeout for IP %s, executing all actioners", ip)
-				m.ExecuteAction("all", ip)
-			} else {
-				log.Printf("Action already taken for IP %s within notifier timeout", ip)
+			select {
+			case <-cancelChan:
+				log.Printf("Notifier timeout cancelled for IP %s", ip)
+				return
+			default:
+				updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
+				if !updatedRecord.ActionTaken {
+					log.Printf("No action taken within notifier timeout for IP %s, executing all actioners", ip)
+					m.ExecuteAction("all", ip)
+				} else {
+					log.Printf("Action already taken for IP %s within notifier timeout", ip)
+				}
 			}
+			// Очищаємо канал після завершення
+			delete(m.cancel, ip)
 		})
 	} else {
 		log.Printf("Notifier disabled for scenario %s, executing all actioners for IP %s", scenarioName, ip)
@@ -138,6 +156,12 @@ func (m *Manager) ExecuteAction(action, ip string) {
 		record.BlockedAt = time.Now().Unix()
 		record.UnblockAfter = time.Now().Unix() + int64(scenario.Params.UnblockAfter*60)
 		record.BlockCount++
+		// Скасовуємо таймер, якщо він є
+		if cancelChan, ok := m.cancel[ip]; ok {
+			close(cancelChan)
+			delete(m.cancel, ip)
+			log.Printf("Cancelled notifier timeout for IP %s due to action execution", ip)
+		}
 		go m.scheduleUnblock(ip, record)
 	}
 	if err := m.db.UpdateBlockRecord(record); err != nil {
@@ -155,7 +179,7 @@ func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
 	}
 	record.BlockedAt = 0
 	record.TriggerCount = 0
-	record.ActionTaken = false // Скидаємо ActionTaken після розблокування
+	record.ActionTaken = false
 	if err := m.db.UpdateBlockRecord(record); err != nil {
 		log.Printf("Failed to update block record for IP %s after unblock: %v", ip, err)
 	}
