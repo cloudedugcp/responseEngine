@@ -60,7 +60,9 @@ func (d *Database) Close() error {
 func (d *Database) LogEvent(ip, ruleName, logText string, timestamp time.Time) error {
 	_, err := d.db.Exec("INSERT INTO events (ip, rule_name, log, timestamp) VALUES (?, ?, ?, ?)", ip, ruleName, logText, timestamp)
 	if err != nil {
-		log.Printf("Error inserting event: %v", err)
+		log.Printf("Error inserting event: ip=%s, rule=%s, log=%s, timestamp=%s, err=%v", ip, ruleName, logText, timestamp, err)
+	} else {
+		log.Printf("Event logged: ip=%s, rule=%s, log=%s, timestamp=%s", ip, ruleName, logText, timestamp)
 	}
 	return err
 }

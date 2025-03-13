@@ -57,17 +57,31 @@ func DashboardHandler(database *db.Database) http.HandlerFunc {
 		var data []DashboardData
 		for rows.Next() {
 			var d DashboardData
+			var lastAttemptTimeStr string
 			var blockTime, unblockTime sql.NullTime
-			if err := rows.Scan(&d.IP, &d.LastEvent, &d.AttemptCount, &d.LastAttemptTime, &blockTime, &unblockTime, &d.BlockCount, &d.Status); err != nil {
+
+			if err := rows.Scan(&d.IP, &d.LastEvent, &d.AttemptCount, &lastAttemptTimeStr, &blockTime, &unblockTime, &d.BlockCount, &d.Status); err != nil {
 				log.Printf("Failed to scan dashboard row: %v", err)
 				continue
 			}
+
+			// Парсимо рядок last_attempt_time у time.Time
+			if lastAttemptTimeStr != "" {
+				d.LastAttemptTime, err = time.Parse("2006-01-02 15:04:05", lastAttemptTimeStr)
+				if err != nil {
+					log.Printf("Failed to parse last_attempt_time '%s': %v", lastAttemptTimeStr, err)
+					continue
+				}
+			}
+
+			// Обробка block_time і unblock_time
 			if blockTime.Valid {
 				d.BlockTime = blockTime.Time
 			}
 			if unblockTime.Valid {
 				d.UnblockTime = unblockTime.Time
 			}
+
 			data = append(data, d)
 		}
 
