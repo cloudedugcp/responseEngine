@@ -65,9 +65,9 @@ func DashboardHandler(database *db.Database) http.HandlerFunc {
 				continue
 			}
 
-			// Парсимо рядок last_attempt_time у time.Time
+			// Парсимо рядок last_attempt_time у форматі RFC 3339
 			if lastAttemptTimeStr != "" {
-				d.LastAttemptTime, err = time.Parse("2006-01-02 15:04:05", lastAttemptTimeStr)
+				d.LastAttemptTime, err = time.Parse(time.RFC3339, lastAttemptTimeStr)
 				if err != nil {
 					log.Printf("Failed to parse last_attempt_time '%s': %v", lastAttemptTimeStr, err)
 					continue
