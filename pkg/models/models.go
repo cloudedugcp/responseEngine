@@ -6,10 +6,11 @@ type Event struct {
 }
 
 type BlockRecord struct {
-	ID           int
-	IP           string
-	BlockedAt    int64
-	UnblockAfter int64
-	BlockCount   int
-	TriggerCount int
+	ID            int
+	IP            string
+	BlockedAt     int64
+	UnblockAfter  int64
+	BlockCount    int
+	TriggerCount  int
+	LastEventTime int64 // Додано для trigger_window
 }

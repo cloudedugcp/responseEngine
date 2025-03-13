@@ -24,33 +24,61 @@ func NewManager(cfg *config.Config, actioners map[string]actioner.Actioner, db *
 }
 
 func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
-	scenario := m.cfg.Scenarios[scenarioName]
-	record, err := m.db.GetOrCreateBlockRecord(event.IP)
-	if err != nil {
-		log.Printf("DB error: %v", err)
+	log.Printf("Handling event for IP %s, scenario %s", event.IP, scenarioName)
+	scenario, exists := m.cfg.Scenarios[scenarioName]
+	if !exists {
+		log.Printf("Scenario %s not found in config", scenarioName)
 		return
 	}
 
+	record, err := m.db.GetOrCreateBlockRecord(event.IP)
+	if err != nil {
+		log.Printf("DB error for IP %s: %v", event.IP, err)
+		return
+	}
+
+	// Додаємо логіку для trigger_window
+	currentTime := time.Now().Unix()
+	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.TriggerWindow) {
+		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
+		record.TriggerCount = 0
+	}
+
 	record.TriggerCount++
+	record.LastEventTime = currentTime // Оновлюємо час останньої події
+	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.TriggerCount)
+
 	if record.TriggerCount >= scenario.TriggerCount {
+		log.Printf("Trigger threshold reached for IP %s, executing scenario", event.IP)
 		m.executeScenario(scenarioName, event.IP, record)
 	}
-	m.db.UpdateBlockRecord(record)
+	if err := m.db.UpdateBlockRecord(record); err != nil {
+		log.Printf("Failed to update DB record for IP %s: %v", event.IP, err)
+	}
 }
 
 func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockRecord) {
 	scenario := m.cfg.Scenarios[scenarioName]
+	log.Printf("Executing scenario %s for IP %s", scenarioName, ip)
+
 	buttons := []notifier.SlackButton{}
 	for _, actName := range scenario.Actioners {
 		buttons = append(buttons, notifier.SlackButton{Name: actName, Value: actName})
 	}
 	buttons = append(buttons, notifier.SlackButton{Name: "Execute All", Value: "all"})
 
-	m.notifier.SendMessageWithButtons(fmt.Sprintf("IP %s triggered scenario", ip), buttons)
+	if err := m.notifier.SendMessageWithButtons(fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName), buttons); err != nil {
+		log.Printf("Failed to send Slack message for IP %s: %v", ip, err)
+	} else {
+		log.Printf("Slack message sent successfully for IP %s", ip)
+	}
 
 	time.AfterFunc(time.Duration(scenario.WaitTimeout)*time.Second, func() {
 		if !m.db.WasActionTaken(ip) {
+			log.Printf("No action taken within timeout for IP %s, executing all actioners", ip)
 			m.ExecuteAction("all", ip)
+		} else {
+			log.Printf("Action already taken for IP %s within timeout", ip)
 		}
 	})
 }
@@ -61,22 +89,29 @@ func (m *Manager) ExecuteAction(action, ip string) {
 
 	if action == "all" {
 		for _, actName := range scenario.Actioners {
-			m.actioners[actName].Execute(ip)
+			if err := m.actioners[actName].Execute(ip); err != nil {
+				log.Printf("Failed to execute actioner %s for IP %s: %v", actName, ip, err)
+			}
 		}
 	} else {
-		m.actioners[action].Execute(ip)
+		if err := m.actioners[action].Execute(ip); err != nil {
+			log.Printf("Failed to execute actioner %s for IP %s: %v", action, ip, err)
+		}
 	}
 
 	record.BlockedAt = time.Now().Unix()
 	record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*record.BlockCount)
 	record.BlockCount++
-	m.db.UpdateBlockRecord(record)
+	if err := m.db.UpdateBlockRecord(record); err != nil {
+		log.Printf("Failed to update block record for IP %s: %v", ip, err)
+	}
 
 	go m.scheduleUnblock(ip, record)
 }
 
 func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
 	time.Sleep(time.Until(time.Unix(record.UnblockAfter, 0)))
+	log.Printf("Unblocking IP %s", ip)
 	m.actioners["gcp_firewall"].Execute(ip) // Логіка розблокування
 	record.BlockedAt = 0
 	record.TriggerCount = 0

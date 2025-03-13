@@ -17,6 +17,7 @@
             <th>Unblock After</th>
             <th>Block Count</th>
             <th>Trigger Count</th>
+            <th>Last Event Time</th>
         </tr>
         {{range .}}
         <tr>
@@ -26,6 +27,7 @@
             <td>{{if .UnblockAfter}}{{.UnblockAfter}}{{else}}N/A{{end}}</td>
             <td>{{.BlockCount}}</td>
             <td>{{.TriggerCount}}</td>
+            <td>{{if .LastEventTime}}{{.LastEventTime}}{{else}}N/A{{end}}</td>
         </tr>
         {{end}}
     </table>
