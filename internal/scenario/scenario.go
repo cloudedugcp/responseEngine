@@ -37,23 +37,21 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 		return
 	}
 
-	// Скидаємо TriggerCount, якщо TriggerWindow минув
 	currentTime := time.Now().Unix()
 	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
+		record.ActionTaken = false // Скидаємо ActionTaken, якщо вікно минув
 	}
 
 	record.TriggerCount++
 	record.LastEventTime = currentTime
 	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.TriggerCount)
 
-	// Викликаємо сценарій лише якщо досягнуто порогу TriggerCount
 	if record.TriggerCount >= scenario.TriggerCount {
 		log.Printf("Trigger threshold reached for IP %s, executing scenario", event.IP)
 		m.executeScenario(scenarioName, event.IP, record)
 	}
-
 	if err := m.db.UpdateBlockRecord(record); err != nil {
 		log.Printf("Failed to update DB record for IP %s: %v", event.IP, err)
 	}
@@ -75,9 +73,9 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 		log.Printf("Slack message sent successfully for IP %s", ip)
 	}
 
-	// Запускаємо таймер тільки після відправки повідомлення
 	time.AfterFunc(time.Duration(scenario.WaitTimeout)*time.Minute, func() {
-		if !m.db.WasActionTaken(ip) {
+		updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
+		if !updatedRecord.ActionTaken {
 			log.Printf("No action taken within timeout for IP %s, executing all actioners", ip)
 			m.ExecuteAction("all", ip)
 		} else {
@@ -90,7 +88,6 @@ func (m *Manager) ExecuteAction(action, ip string) {
 	scenario := m.cfg.Scenarios["block_ip"]
 	record, _ := m.db.GetOrCreateBlockRecord(ip)
 
-	// Перевіряємо, чи IP уже заблоковано
 	if record.BlockedAt > 0 && action != "all" {
 		log.Printf("IP %s already blocked, skipping action %s", ip, action)
 		return
@@ -112,15 +109,16 @@ func (m *Manager) ExecuteAction(action, ip string) {
 		return
 	}
 
-	// Оновлюємо запис у базі лише для блокуючих дій
+	// Позначаємо, що дія була виконана
+	record.ActionTaken = true
 	if action == "gcp_firewall" || action == "all" {
 		record.BlockedAt = time.Now().Unix()
 		record.UnblockAfter = time.Now().Unix() + int64(scenario.UnblockAfter*60)
 		record.BlockCount++
-		if err := m.db.UpdateBlockRecord(record); err != nil {
-			log.Printf("Failed to update block record for IP %s: %v", ip, err)
-		}
 		go m.scheduleUnblock(ip, record)
+	}
+	if err := m.db.UpdateBlockRecord(record); err != nil {
+		log.Printf("Failed to update block record for IP %s: %v", ip, err)
 	}
 }
 

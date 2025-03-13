@@ -12,5 +12,6 @@ type BlockRecord struct {
 	UnblockAfter  int64
 	BlockCount    int
 	TriggerCount  int
-	LastEventTime int64 // Додано для trigger_window
+	LastEventTime int64
+	ActionTaken   bool
 }

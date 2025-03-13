@@ -32,28 +32,34 @@ func NewSQLiteDB(path string) (*SQLiteDB, error) {
 }
 
 func (d *SQLiteDB) GetOrCreateBlockRecord(ip string) (*models.BlockRecord, error) {
-	record := &models.BlockRecord{IP: ip}
-	row := d.db.QueryRow("SELECT id, blocked_at, unblock_after, block_count, trigger_count, last_event_time FROM blocks WHERE ip = ?", ip)
-	if err := row.Scan(&record.ID, &record.BlockedAt, &record.UnblockAfter, &record.BlockCount, &record.TriggerCount, &record.LastEventTime); err != nil {
-		if err == sql.ErrNoRows {
-			_, err = d.db.Exec("INSERT INTO blocks (ip, blocked_at, unblock_after, block_count, trigger_count, last_event_time) VALUES (?, 0, 0, 0, 0, 0)", ip)
-			return record, err
-		}
+	var record models.BlockRecord
+	err := d.db.QueryRow("SELECT id, ip, blocked_at, unblock_after, block_count, trigger_count, last_event_time, action_taken FROM blocks WHERE ip = ?", ip).Scan(
+		&record.ID, &record.IP, &record.BlockedAt, &record.UnblockAfter, &record.BlockCount, &record.TriggerCount, &record.LastEventTime, &record.ActionTaken,
+	)
+	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
-	return record, nil
+	if err == sql.ErrNoRows {
+		res, err := d.db.Exec("INSERT INTO blocks (ip, blocked_at, unblock_after, block_count, trigger_count, last_event_time, action_taken) VALUES (?, 0, 0, 0, 0, 0, 0)", ip)
+		if err != nil {
+			return nil, err
+		}
+		id, _ := res.LastInsertId()
+		record = models.BlockRecord{ID: int(id), IP: ip}
+	}
+	return &record, nil
 }
 
 func (d *SQLiteDB) UpdateBlockRecord(record *models.BlockRecord) error {
-	_, err := d.db.Exec("UPDATE blocks SET blocked_at = ?, unblock_after = ?, block_count = ?, trigger_count = ?, last_event_time = ? WHERE ip = ?",
-		record.BlockedAt, record.UnblockAfter, record.BlockCount, record.TriggerCount, record.LastEventTime, record.IP)
+	_, err := d.db.Exec("UPDATE blocks SET blocked_at = ?, unblock_after = ?, block_count = ?, trigger_count = ?, last_event_time = ?, action_taken = ? WHERE ip = ?",
+		record.BlockedAt, record.UnblockAfter, record.BlockCount, record.TriggerCount, record.LastEventTime, record.ActionTaken, record.IP)
 	return err
 }
 
 func (d *SQLiteDB) WasActionTaken(ip string) bool {
-	var blockedAt int64
-	d.db.QueryRow("SELECT blocked_at FROM blocks WHERE ip = ?", ip).Scan(&blockedAt)
-	return blockedAt > 0
+	var actionTaken bool
+	d.db.QueryRow("SELECT action_taken FROM blocks WHERE ip = ?", ip).Scan(&actionTaken)
+	return actionTaken
 }
 
 func (d *SQLiteDB) GetAllRecords() ([]models.BlockRecord, error) {
