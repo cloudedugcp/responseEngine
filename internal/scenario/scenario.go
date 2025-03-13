@@ -31,7 +31,6 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 		return
 	}
 
-	// Перевіряємо, чи подія відповідає правилу Falco
 	if event.Rule != scenario.Rule {
 		log.Printf("Event rule %s does not match scenario rule %s for IP %s", event.Rule, scenario.Rule, event.IP)
 		return
@@ -53,6 +52,12 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 	record.TriggerCount++
 	record.LastEventTime = currentTime
 	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.Params.TriggerCount)
+
+	// Додаємо перевірку на нульове значення trigger_count
+	if scenario.Params.TriggerCount <= 0 {
+		log.Printf("Invalid trigger_count %d for scenario %s, defaulting to 1", scenario.Params.TriggerCount, scenarioName)
+		scenario.Params.TriggerCount = 1
+	}
 
 	if record.TriggerCount >= scenario.Params.TriggerCount {
 		log.Printf("Trigger threshold reached for IP %s, executing scenario", event.IP)
@@ -80,6 +85,7 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 			log.Printf("Slack message sent successfully for IP %s", ip)
 		}
 
+		log.Printf("Setting notifier timeout to %d minutes for IP %s", scenario.Action.Notifier.Timeout, ip)
 		time.AfterFunc(time.Duration(scenario.Action.Notifier.Timeout)*time.Minute, func() {
 			updatedRecord, _ := m.db.GetOrCreateBlockRecord(ip)
 			if !updatedRecord.ActionTaken {
@@ -106,11 +112,13 @@ func (m *Manager) ExecuteAction(action, ip string) {
 
 	if action == "all" {
 		for _, actName := range scenario.Action.Actioners {
+			log.Printf("Executing actioner %s for IP %s", actName, ip)
 			if err := m.actioners[actName].Execute(ip); err != nil {
 				log.Printf("Failed to execute actioner %s for IP %s: %v", actName, ip, err)
 			}
 		}
 	} else if actioner, ok := m.actioners[action]; ok {
+		log.Printf("Executing actioner %s for IP %s", action, ip)
 		if err := actioner.Execute(ip); err != nil {
 			log.Printf("Failed to execute actioner %s for IP %s: %v", action, ip, err)
 			return
