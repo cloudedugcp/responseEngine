@@ -46,14 +46,19 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.Params.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
-		record.ActionTaken = false
+		record.ActionTaken = false // Скидаємо, якщо вікно минув
+	}
+
+	// Перевіряємо, чи сценарій уже активний
+	if record.ActionTaken && record.BlockedAt > 0 {
+		log.Printf("Scenario already active for IP %s, skipping execution", event.IP)
+		return
 	}
 
 	record.TriggerCount++
 	record.LastEventTime = currentTime
 	log.Printf("IP %s: TriggerCount = %d, required = %d", event.IP, record.TriggerCount, scenario.Params.TriggerCount)
 
-	// Додаємо перевірку на нульове значення trigger_count
 	if scenario.Params.TriggerCount <= 0 {
 		log.Printf("Invalid trigger_count %d for scenario %s, defaulting to 1", scenario.Params.TriggerCount, scenarioName)
 		scenario.Params.TriggerCount = 1
@@ -150,5 +155,8 @@ func (m *Manager) scheduleUnblock(ip string, record *models.BlockRecord) {
 	}
 	record.BlockedAt = 0
 	record.TriggerCount = 0
-	m.db.UpdateBlockRecord(record)
+	record.ActionTaken = false // Скидаємо ActionTaken після розблокування
+	if err := m.db.UpdateBlockRecord(record); err != nil {
+		log.Printf("Failed to update block record for IP %s after unblock: %v", ip, err)
+	}
 }

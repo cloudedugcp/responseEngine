@@ -1,37 +1,82 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Block Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Response Engine Dashboard</title>
     <style>
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background-color: #fff;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .blocked {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        .not-blocked {
+            color: #388e3c;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <h1>Blocked IPs</h1>
+    <h1>Response Engine Dashboard</h1>
     <table>
-        <tr>
-            <th>ID</th>
-            <th>IP</th>
-            <th>Status</th>
-            <th>Blocked At</th>
-            <th>Unblock After</th>
-            <th>Block Count</th>
-            <th>Trigger Count</th>
-            <th>Last Event Time</th>
-        </tr>
-        {{range .}}
-        <tr>
-            <td>{{.ID}}</td>
-            <td>{{.IP}}</td>
-            <td>{{.Status}}</td>
-            <td>{{if .BlockedAt}}{{.BlockedAt}}{{else}}N/A{{end}}</td>
-            <td>{{if .UnblockAfter}}{{.UnblockAfter}}{{else}}N/A{{end}}</td>
-            <td>{{.BlockCount}}</td>
-            <td>{{.TriggerCount}}</td>
-            <td>{{if .LastEventTime}}{{.LastEventTime}}{{else}}N/A{{end}}</td>
-        </tr>
-        {{end}}
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>IP</th>
+                <th>Status</th>
+                <th>Blocked At</th>
+                <th>Unblock After</th>
+                <th>Block Count</th>
+                <th>Trigger Count</th>
+                <th>Last Event Time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .}}
+            <tr>
+                <td>{{.ID}}</td>
+                <td>{{.IP}}</td>
+                <td class="{{if eq .Status "Blocked"}}blocked{{else}}not-blocked{{end}}">{{.Status}}</td>
+                <td>{{.BlockedAt}}</td>
+                <td>{{.UnblockAfter}}</td>
+                <td>{{.BlockCount}}</td>
+                <td>{{.TriggerCount}}</td>
+                <td>{{.LastEventTime}}</td>
+            </tr>
+            {{end}}
+        </tbody>
     </table>
 </body>
 </html>
