@@ -55,11 +55,12 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 	if record.BlockedAt == 0 && record.TriggerCount > 0 && (currentTime-record.LastEventTime) > int64(scenario.Params.TriggerWindow*60) {
 		log.Printf("Resetting TriggerCount for IP %s due to expired window", event.IP)
 		record.TriggerCount = 0
-		record.ActionTaken = false
+		record.ActionTaken = false // Скидаємо, якщо вікно минув
 	}
 
-	if record.ActionTaken && record.BlockedAt > 0 {
-		log.Printf("Scenario already active for IP %s, skipping execution", event.IP)
+	// Перевіряємо, чи сценарій уже активний або повідомлення вже відправлено
+	if record.ActionTaken {
+		log.Printf("Scenario already triggered for IP %s, skipping execution", event.IP)
 		return
 	}
 
@@ -72,10 +73,12 @@ func (m *Manager) HandleEvent(scenarioName string, event models.Event) {
 		scenario.Params.TriggerCount = 1
 	}
 
-	if record.TriggerCount >= scenario.Params.TriggerCount {
+	// Викликаємо сценарій лише коли TriggerCount вперше досягає межі
+	if record.TriggerCount == scenario.Params.TriggerCount {
 		log.Printf("Trigger threshold reached for IP %s, executing scenario", event.IP)
 		m.executeScenario(scenarioName, event.IP, record)
 	}
+
 	if err := m.db.UpdateBlockRecord(record); err != nil {
 		log.Printf("Failed to update DB record for IP %s: %v", event.IP, err)
 	}

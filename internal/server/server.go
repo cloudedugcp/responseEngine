@@ -12,9 +12,8 @@ import (
 	"github.com/cloudedugcp/responseEngine/internal/db"
 	"github.com/cloudedugcp/responseEngine/internal/notifier"
 	"github.com/cloudedugcp/responseEngine/internal/scenario"
-	"github.com/cloudedugcp/responseEngine/pkg/models"
-
 	"github.com/cloudedugcp/responseEngine/internal/web"
+	"github.com/cloudedugcp/responseEngine/pkg/models"
 )
 
 type Server struct {
@@ -84,7 +83,6 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Використовуємо RemoteIP (fd.rip) як IP для блокування
 	ip := falcoEvent.OutputFields.RemoteIP
 	if ip == "" {
 		log.Printf("No remote IP found in event")
