@@ -1,8 +1,11 @@
 package models
 
 type Event struct {
-	IP   string `json:"ip"`
-	Rule string
+	IP       string `json:"ip"`
+	Rule     string
+	Result   string
+	Time     string
+	SourceIP string
 }
 
 type BlockRecord struct {

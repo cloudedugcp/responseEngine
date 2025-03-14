@@ -69,13 +69,37 @@ func (s *Server) Start() {
 }
 
 func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
-	var event models.Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	var falcoEvent struct {
+		Rule         string `json:"rule"`
+		OutputFields struct {
+			RemoteIP string `json:"fd.rip"`
+			Result   string `json:"evt.res"`
+			SourceIP string `json:"fd.sip"`
+		} `json:"output_fields"`
+		Time string `json:"time"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&falcoEvent); err != nil {
 		log.Printf("Failed to decode event: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	log.Printf("Received event for IP %s", event.IP)
+
+	// Використовуємо RemoteIP (fd.rip) як IP для блокування
+	ip := falcoEvent.OutputFields.RemoteIP
+	if ip == "" {
+		log.Printf("No remote IP found in event")
+		http.Error(w, "Missing IP", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Received event for IP %s with rule %s", ip, falcoEvent.Rule)
+	event := models.Event{
+		IP:       ip,
+		Rule:     falcoEvent.Rule,
+		Result:   falcoEvent.OutputFields.Result,
+		Time:     falcoEvent.Time,
+		SourceIP: falcoEvent.OutputFields.SourceIP,
+	}
 	s.scenarios.HandleEvent("block_ip", event)
 	w.WriteHeader(http.StatusOK)
 }
