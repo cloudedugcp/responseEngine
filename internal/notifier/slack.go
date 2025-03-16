@@ -9,8 +9,8 @@ import (
 )
 
 type SlackNotifier struct {
-	webhookURL  string
-	callbackURL string
+	WebhookURL  string
+	CallbackURL string
 }
 
 type SlackButton struct {
@@ -37,7 +37,7 @@ type SlackMessage struct {
 }
 
 func NewSlackNotifier(webhookURL, callbackURL string) *SlackNotifier {
-	return &SlackNotifier{webhookURL, callbackURL}
+	return &SlackNotifier{WebhookURL: webhookURL, CallbackURL: callbackURL} // Використовуємо правильні назви полів
 }
 
 func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButton) error {
@@ -81,7 +81,7 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 	// Логуємо JSON, який надсилається
 	log.Printf("Slack payload: %s", string(payload))
 
-	resp, err := http.Post(s.webhookURL, "application/json", bytes.NewBuffer(payload))
+	resp, err := http.Post(s.WebhookURL, "application/json", bytes.NewBuffer(payload)) // Змінено на s.WebhookURL
 	if err != nil {
 		log.Printf("Failed to send Slack message: %v", err)
 		return err
@@ -94,5 +94,40 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 	}
 
 	log.Printf("Slack message sent successfully")
+	return nil
+}
+
+func (n *SlackNotifier) UpdateMessage(originalMessage, newText string) error {
+	payload := struct {
+		Text            string `json:"text"`
+		ReplaceOriginal bool   `json:"replace_original"`
+		Attachments     []struct {
+			Text string `json:"text"`
+		} `json:"attachments"`
+	}{
+		Text:            originalMessage,
+		ReplaceOriginal: true,
+		Attachments: []struct {
+			Text string `json:"text"`
+		}{
+			{Text: newText},
+		},
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Slack update payload: %v", err)
+	}
+
+	resp, err := http.Post(n.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to update Slack message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Slack API returned non-OK status for update: %d", resp.StatusCode)
+	}
+
 	return nil
 }

@@ -95,7 +95,8 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 		}
 		buttons = append(buttons, notifier.SlackButton{Name: "Execute All", Value: "all"})
 
-		if err := m.notifier.SendMessageWithButtons(fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName), buttons); err != nil {
+		message := fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName)
+		if err := m.notifier.SendMessageWithButtons(message, buttons); err != nil {
 			log.Printf("Failed to send Slack message for IP %s: %v", ip, err)
 		} else {
 			log.Printf("Slack message sent successfully for IP %s", ip)
@@ -115,6 +116,12 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 				if !updatedRecord.ActionTaken {
 					log.Printf("No action taken within notifier timeout for IP %s, executing all actioners", ip)
 					m.ExecuteAction("all", ip)
+					// Оновлюємо повідомлення в Slack після автоматичного блокування
+					if err := m.notifier.UpdateMessage(message, "Автоматично виконано всі дії для IP "+ip); err != nil {
+						log.Printf("Failed to update Slack message for IP %s: %v", ip, err)
+					} else {
+						log.Printf("Slack message updated for IP %s after auto-execution", ip)
+					}
 				} else {
 					log.Printf("Action already taken for IP %s within notifier timeout", ip)
 				}
@@ -156,8 +163,10 @@ func (m *Manager) ExecuteAction(action, ip string) {
 
 	record.ActionTaken = true
 	if action == "gcp_firewall" || action == "all" {
+		baseUnblockAfter := int64(scenario.Params.UnblockAfter * 60) // Базовий час у секундах
+		multiplier := int64(record.BlockCount + 1)                   // Збільшуємо на основі кількості попередніх блокувань
 		record.BlockedAt = time.Now().Unix()
-		record.UnblockAfter = time.Now().Unix() + int64(scenario.Params.UnblockAfter*60)
+		record.UnblockAfter = time.Now().Unix() + baseUnblockAfter*multiplier
 		record.BlockCount++
 		if cancelChan, ok := m.cancel[ip]; ok {
 			close(cancelChan)
@@ -166,6 +175,7 @@ func (m *Manager) ExecuteAction(action, ip string) {
 		}
 		unblockCancelChan := make(chan struct{})
 		m.unblockCancel[ip] = unblockCancelChan
+		log.Printf("IP %s blocked, unblock after %d seconds (BlockCount: %d)", ip, baseUnblockAfter*multiplier, record.BlockCount)
 		go m.scheduleUnblock(ip, record, unblockCancelChan)
 	}
 	if err := m.db.UpdateBlockRecord(record); err != nil {
