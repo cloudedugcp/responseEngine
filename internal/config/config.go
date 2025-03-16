@@ -8,22 +8,24 @@ import (
 
 type Config struct {
 	Server struct {
-		Port          int
-		DashboardPort int `yaml:"dashboard_port"`
-		Aliases       map[string]string
-	}
+		Port          int               `yaml:"port"`
+		DashboardPort int               `yaml:"dashboard_port"`
+		Aliases       map[string]string `yaml:"aliases"`
+	} `yaml:"server"`
 	Scenarios map[string]struct {
 		Rule   string         `yaml:"rule"`
 		Params ScenarioParams `yaml:"params"`
 		Action ScenarioAction `yaml:"action"`
-	}
-	Actioners map[string]ActionerConfig
+	} `yaml:"scenarios"`
+	Actioners map[string]ActionerConfig `yaml:"actioners"`
 	Notifier  struct {
 		Slack struct {
 			WebhookURL  string `yaml:"webhook_url"`
 			CallbackURL string `yaml:"callback_url"`
-		}
-	}
+			BotToken    string `yaml:"bot_token"`
+			Channel     string `yaml:"channel"`
+		} `yaml:"slack"`
+	} `yaml:"notifier"`
 }
 
 type ScenarioParams struct {

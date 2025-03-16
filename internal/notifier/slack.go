@@ -11,6 +11,8 @@ import (
 type SlackNotifier struct {
 	WebhookURL  string
 	CallbackURL string
+	BotToken    string // Додано Bot Token
+	Channel     string // Додано Channel ID
 }
 
 type SlackButton struct {
@@ -31,38 +33,39 @@ type SlackAttachment struct {
 	Actions    []SlackAction `json:"actions"`
 }
 
-type SlackMessage struct {
-	Text        string            `json:"text"`
-	Attachments []SlackAttachment `json:"attachments"`
+func NewSlackNotifier(webhookURL, callbackURL, botToken, channel string) *SlackNotifier {
+	return &SlackNotifier{
+		WebhookURL:  webhookURL,
+		CallbackURL: callbackURL,
+		BotToken:    botToken,
+		Channel:     channel,
+	}
 }
 
-func NewSlackNotifier(webhookURL, callbackURL string) *SlackNotifier {
-	return &SlackNotifier{WebhookURL: webhookURL, CallbackURL: callbackURL} // Використовуємо правильні назви полів
-}
-
-func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButton) error {
-	// Логуємо вхідні кнопки
+func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButton) (string, error) {
 	log.Printf("Sending Slack message with %d buttons: %+v", len(buttons), buttons)
 
-	// Формуємо дії (кнопки) для Slack
 	var slackActions []SlackAction
 	for _, button := range buttons {
 		slackActions = append(slackActions, SlackAction{
 			Name:  button.Name,
-			Text:  button.Name, // Текст на кнопці
+			Text:  button.Name,
 			Type:  "button",
 			Value: button.Value,
 		})
 	}
 
-	// Перевіряємо, чи є дії
 	if len(slackActions) == 0 {
 		log.Printf("No actions generated for Slack message")
 	}
 
-	// Створюємо повідомлення з вкладенням для кнопок
-	msg := SlackMessage{
-		Text: text,
+	payload := struct {
+		Channel     string            `json:"channel"`
+		Text        string            `json:"text"`
+		Attachments []SlackAttachment `json:"attachments"`
+	}{
+		Channel: s.Channel,
+		Text:    text,
 		Attachments: []SlackAttachment{
 			{
 				Text:       "Choose an action:",
@@ -72,62 +75,94 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 		},
 	}
 
-	payload, err := json.Marshal(msg)
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("Failed to marshal Slack message: %v", err)
-		return err
+		return "", err
 	}
 
-	// Логуємо JSON, який надсилається
-	log.Printf("Slack payload: %s", string(payload))
+	req, err := http.NewRequest("POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("Failed to create Slack request: %v", err)
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.BotToken)
 
-	resp, err := http.Post(s.WebhookURL, "application/json", bytes.NewBuffer(payload)) // Змінено на s.WebhookURL
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Failed to send Slack message: %v", err)
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Slack API returned non-OK status: %d", resp.StatusCode)
-		return fmt.Errorf("Slack API returned non-OK status: %d", resp.StatusCode)
+	var result struct {
+		Ok    bool   `json:"ok"`
+		Ts    string `json:"ts"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("Failed to decode Slack response: %v", err)
+		return "", err
 	}
 
-	log.Printf("Slack message sent successfully")
-	return nil
+	if !result.Ok {
+		log.Printf("Slack API error: %s", result.Error)
+		return "", fmt.Errorf("Slack API error: %s", result.Error)
+	}
+
+	log.Printf("Slack message sent successfully with ts: %s", result.Ts)
+	return result.Ts, nil
 }
 
-func (n *SlackNotifier) UpdateMessage(originalMessage, newText string) error {
+func (s *SlackNotifier) UpdateMessage(ts, newText string) error {
 	payload := struct {
-		Text            string `json:"text"`
-		ReplaceOriginal bool   `json:"replace_original"`
-		Attachments     []struct {
-			Text string `json:"text"`
-		} `json:"attachments"`
+		Channel string `json:"channel"`
+		Ts      string `json:"ts"`
+		Text    string `json:"text"`
 	}{
-		Text:            originalMessage,
-		ReplaceOriginal: true,
-		Attachments: []struct {
-			Text string `json:"text"`
-		}{
-			{Text: newText},
-		},
+		Channel: s.Channel,
+		Ts:      ts,
+		Text:    newText,
 	}
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("Failed to marshal Slack update payload: %v", err)
 		return fmt.Errorf("failed to marshal Slack update payload: %v", err)
 	}
 
-	resp, err := http.Post(n.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://slack.com/api/chat.update", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to update Slack message: %v", err)
+		log.Printf("Failed to create Slack update request: %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.BotToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to update Slack message: %v", err)
+		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Slack API returned non-OK status for update: %d", resp.StatusCode)
+	var result struct {
+		Ok    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("Failed to decode Slack update response: %v", err)
+		return err
 	}
 
+	if !result.Ok {
+		log.Printf("Slack API update error: %s", result.Error)
+		return fmt.Errorf("Slack API update error: %s", result.Error)
+	}
+
+	log.Printf("Slack message updated successfully for ts: %s", ts)
 	return nil
 }

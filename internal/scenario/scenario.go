@@ -96,10 +96,11 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 		buttons = append(buttons, notifier.SlackButton{Name: "Execute All", Value: "all"})
 
 		message := fmt.Sprintf("IP %s triggered scenario %s", ip, scenarioName)
-		if err := m.notifier.SendMessageWithButtons(message, buttons); err != nil {
+		ts, err := m.notifier.SendMessageWithButtons(message, buttons)
+		if err != nil {
 			log.Printf("Failed to send Slack message for IP %s: %v", ip, err)
 		} else {
-			log.Printf("Slack message sent successfully for IP %s", ip)
+			log.Printf("Slack message sent successfully for IP %s with ts: %s", ip, ts)
 		}
 
 		cancelChan := make(chan struct{})
@@ -116,8 +117,7 @@ func (m *Manager) executeScenario(scenarioName, ip string, record *models.BlockR
 				if !updatedRecord.ActionTaken {
 					log.Printf("No action taken within notifier timeout for IP %s, executing all actioners", ip)
 					m.ExecuteAction("all", ip)
-					// Оновлюємо повідомлення в Slack після автоматичного блокування
-					if err := m.notifier.UpdateMessage(message, "Автоматично виконано всі дії для IP "+ip); err != nil {
+					if err := m.notifier.UpdateMessage(ts, fmt.Sprintf("Автоматично виконано всі дії для IP %s", ip)); err != nil {
 						log.Printf("Failed to update Slack message for IP %s: %v", ip, err)
 					} else {
 						log.Printf("Slack message updated for IP %s after auto-execution", ip)

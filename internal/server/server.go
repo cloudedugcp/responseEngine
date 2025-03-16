@@ -35,7 +35,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		"gcp_storage":  actioner.NewGCPStorage(cfg.Actioners["gcp_storage"]),
 	}
 
-	slackNotifier := notifier.NewSlackNotifier(cfg.Notifier.Slack.WebhookURL, cfg.Notifier.Slack.CallbackURL)
+	slackNotifier := notifier.NewSlackNotifier(
+		cfg.Notifier.Slack.WebhookURL,
+		cfg.Notifier.Slack.CallbackURL,
+		cfg.Notifier.Slack.BotToken, // Передаємо Bot Token
+		cfg.Notifier.Slack.Channel,  // Передаємо Channel ID
+	)
 	scenarioMgr := scenario.NewManager(cfg, actioners, db, slackNotifier)
 
 	return &Server{cfg, actioners, db, slackNotifier, scenarioMgr}, nil
@@ -48,19 +53,17 @@ func (s *Server) Start() {
 		mux.HandleFunc(path, s.handleEvent)
 	}
 
-	// Витягуємо шлях із callback_url
 	callbackURL, err := url.Parse(s.cfg.Notifier.Slack.CallbackURL)
 	if err != nil {
 		log.Fatalf("Failed to parse callback_url from config: %v", err)
 	}
 	callbackPath := callbackURL.Path
 	if callbackPath == "" {
-		callbackPath = "/callback" // Запасний варіант, якщо шлях не вказано
+		callbackPath = "/callback"
 	}
 	log.Printf("Registering Slack callback at %s", callbackPath)
 	mux.HandleFunc(callbackPath, s.handleSlackCallback)
 
-	// Запуск дашборда з передачею scenario.Manager
 	go web.StartDashboard(s.cfg.Server.DashboardPort, s.db, s.scenarios)
 
 	log.Printf("Server starting on :%d", s.cfg.Server.Port)
@@ -156,7 +159,6 @@ func (s *Server) handleSlackCallback(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Executing action %s for IP %s from Slack callback", action, ip)
 		s.scenarios.ExecuteAction(action, ip)
 
-		// Оновлюємо повідомлення без кнопок
 		response := struct {
 			Text        string `json:"text"`
 			Attachments []struct {
