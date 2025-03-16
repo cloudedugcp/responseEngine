@@ -11,8 +11,8 @@ import (
 type SlackNotifier struct {
 	WebhookURL  string
 	CallbackURL string
-	BotToken    string // Додано Bot Token
-	Channel     string // Додано Channel ID
+	BotToken    string
+	Channel     string
 }
 
 type SlackButton struct {
@@ -55,10 +55,6 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 		})
 	}
 
-	if len(slackActions) == 0 {
-		log.Printf("No actions generated for Slack message")
-	}
-
 	payload := struct {
 		Channel     string            `json:"channel"`
 		Text        string            `json:"text"`
@@ -80,13 +76,14 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 		log.Printf("Failed to marshal Slack message: %v", err)
 		return "", err
 	}
+	log.Printf("Slack payload: %s", string(jsonData))
 
 	req, err := http.NewRequest("POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Printf("Failed to create Slack request: %v", err)
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Authorization", "Bearer "+s.BotToken)
 
 	client := &http.Client{}
@@ -107,6 +104,7 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 		return "", err
 	}
 
+	log.Printf("Slack response: ok=%v, ts=%s, error=%s", result.Ok, result.Ts, result.Error)
 	if !result.Ok {
 		log.Printf("Slack API error: %s", result.Error)
 		return "", fmt.Errorf("Slack API error: %s", result.Error)
@@ -118,13 +116,15 @@ func (s *SlackNotifier) SendMessageWithButtons(text string, buttons []SlackButto
 
 func (s *SlackNotifier) UpdateMessage(ts, newText string) error {
 	payload := struct {
-		Channel string `json:"channel"`
-		Ts      string `json:"ts"`
-		Text    string `json:"text"`
+		Channel     string            `json:"channel"`
+		Ts          string            `json:"ts"`
+		Text        string            `json:"text"`
+		Attachments []SlackAttachment `json:"attachments"` // Явно вказуємо порожній список вкладень
 	}{
-		Channel: s.Channel,
-		Ts:      ts,
-		Text:    newText,
+		Channel:     s.Channel,
+		Ts:          ts,
+		Text:        newText,
+		Attachments: []SlackAttachment{}, // Очищаємо вкладення
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -132,13 +132,14 @@ func (s *SlackNotifier) UpdateMessage(ts, newText string) error {
 		log.Printf("Failed to marshal Slack update payload: %v", err)
 		return fmt.Errorf("failed to marshal Slack update payload: %v", err)
 	}
+	log.Printf("Slack update payload: %s", string(jsonData))
 
 	req, err := http.NewRequest("POST", "https://slack.com/api/chat.update", bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Printf("Failed to create Slack update request: %v", err)
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Authorization", "Bearer "+s.BotToken)
 
 	client := &http.Client{}
@@ -158,6 +159,7 @@ func (s *SlackNotifier) UpdateMessage(ts, newText string) error {
 		return err
 	}
 
+	log.Printf("Slack update response: ok=%v, error=%s", result.Ok, result.Error)
 	if !result.Ok {
 		log.Printf("Slack API update error: %s", result.Error)
 		return fmt.Errorf("Slack API update error: %s", result.Error)
