@@ -33,6 +33,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	actioners := map[string]actioner.Actioner{
 		"gcp_firewall": actioner.NewGCPFirewall(cfg.Actioners["gcp_firewall"]),
 		"gcp_storage":  actioner.NewGCPStorage(cfg.Actioners["gcp_storage"]),
+		"sigmahq":      actioner.NewSigmaHQActioner(cfg.Actioners["sigmahq"]),
 	}
 
 	slackNotifier := notifier.NewSlackNotifier(

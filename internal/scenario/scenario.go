@@ -149,6 +149,7 @@ func (m *Manager) ExecuteAction(action, ip string) {
 			if err := m.actioners[actName].Execute(ip); err != nil {
 				log.Printf("Failed to execute actioner %s for IP %s: %v", actName, ip, err)
 			}
+			// Тут SigmaHQActioner викличеться, якщо "sigmahq" є в scenario.Action.Actioners
 		}
 	} else if actioner, ok := m.actioners[action]; ok {
 		log.Printf("Executing actioner %s for IP %s", action, ip)
@@ -156,6 +157,7 @@ func (m *Manager) ExecuteAction(action, ip string) {
 			log.Printf("Failed to execute actioner %s for IP %s: %v", action, ip, err)
 			return
 		}
+		// Тут SigmaHQActioner викличеться, якщо action == "sigmahq"
 	} else {
 		log.Printf("Unknown action %s for IP %s", action, ip)
 		return
