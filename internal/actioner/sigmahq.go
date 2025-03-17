@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/cloudedugcp/responseEngine/internal/config"
+	"google.golang.org/api/option"
 	"gopkg.in/yaml.v2"
 )
 
@@ -41,7 +42,7 @@ func NewSigmaHQActioner(cfg config.ActionerConfig) *SigmaHQActioner {
 
 // Execute конвертує подію в SigmaHQ формат і записує в бакет.
 func (s *SigmaHQActioner) Execute(ip string) error {
-	// Отримуємо bucket_name із конфігурації напряму
+	// Отримуємо bucket_name із конфігурації
 	bucketName := s.cfg.BucketName
 	if bucketName == "" {
 		return fmt.Errorf("missing bucket_name in SigmaHQActioner config")
@@ -81,9 +82,14 @@ func (s *SigmaHQActioner) Execute(ip string) error {
 		return err
 	}
 
-	// Ініціалізуємо клієнт Google Cloud Storage
+	// Ініціалізуємо клієнт Google Cloud Storage із credentials, якщо вказано
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	var client *storage.Client
+	if s.cfg.CredentialsFile != "" {
+		client, err = storage.NewClient(ctx, option.WithCredentialsFile(s.cfg.CredentialsFile))
+	} else {
+		client, err = storage.NewClient(ctx) // Використовуємо ADC, якщо credentials_file не вказано
+	}
 	if err != nil {
 		log.Printf("Failed to create GCS client: %v", err)
 		return err
